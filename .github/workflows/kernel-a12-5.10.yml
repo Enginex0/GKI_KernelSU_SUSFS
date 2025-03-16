@@ -6,7 +6,7 @@ permissions:
 on:
   push:
     paths:
-      - '.github/workflows/kernel-a12-5.10.yml'  # Runs when this workflow file is updated
+      - .github/workflows/kernel-a12-5.10.yml  # Runs when this workflow file is updated
   workflow_call:  # This allows this workflow to be called from another workflow
     inputs:
       make_release:
