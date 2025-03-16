@@ -24,7 +24,7 @@ on:
       kernelsu_branch_other:
         required: false
         type: string
-        default: " "
+        default: ""
   workflow_call:  # This allows this workflow to be called from another workflow
     inputs:
       make_release:
@@ -42,7 +42,7 @@ on:
       kernelsu_branch_other:
         required: false
         type: string
-        default: " "
+        default: ""
   
 jobs:
   build-kernel-a12-5-10-kernelsu-susfs:
@@ -80,12 +80,12 @@ jobs:
     uses: ./.github/workflows/gki-kernel.yml
     secrets: inherit
     with:
-      make_release: ${{ inputs.make_release }}
+      make_release: ${{ inputs.make_release || false}}
       android_version: "android12"
       kernel_version: "5.10"
       sub_level: ${{ matrix.sub_level }}
       os_patch_level: ${{ matrix.os_patch_level }}
       revision: ${{ matrix.revision }}
-      kernelsu_variant: ${{ inputs.kernelsu_variant }}
-      kernelsu_branch: ${{ inputs.kernelsu_branch }}
-      kernelsu_branch_other: ${{ inputs.kernelsu_branch_other }}
+      kernelsu_variant: ${{ inputs.kernelsu_variant || 'Next' }}
+      kernelsu_branch: ${{ inputs.kernelsu_branch || 'Dev' }}
+      kernelsu_branch_other: ${{ inputs.kernelsu_branch_other || '' }}
