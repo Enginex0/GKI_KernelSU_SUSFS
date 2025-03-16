@@ -24,7 +24,6 @@ on:
       kernelsu_branch_other:
         required: false
         type: string
-        default: ""
   workflow_dispatch:
     inputs:
       make_release:
@@ -42,7 +41,6 @@ on:
       kernelsu_branch_other:
         required: false
         type: string
-        default: ""
   
 jobs:
   build-kernel-a12-5-10-kernelsu-susfs:
