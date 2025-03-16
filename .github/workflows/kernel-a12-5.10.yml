@@ -24,7 +24,7 @@ on:
       kernelsu_branch_other:
         required: false
         type: string
-        default: ""
+        default: " "
   workflow_call:  # This allows this workflow to be called from another workflow
     inputs:
       make_release:
@@ -42,7 +42,7 @@ on:
       kernelsu_branch_other:
         required: false
         type: string
-        default: ""
+        default: " "
   
 jobs:
   build-kernel-a12-5-10-kernelsu-susfs:
