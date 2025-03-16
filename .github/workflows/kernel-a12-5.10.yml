@@ -4,7 +4,6 @@ permissions:
   actions: write   # Allows triggering actions
 
 on:
-  workflow_dispatch:  # Allows manual trigger from GitHub UI or API
   push:
     paths:
       - '.github/workflows/kernel-a12-5.10.yml'  # Runs when this workflow file is updated
@@ -13,16 +12,37 @@ on:
       make_release:
         required: true
         type: boolean
-        default: true
+        default: false
       kernelsu_variant:
         required: true
         type: string
+        default: Next
       kernelsu_branch:
         required: true
         type: string
+        default: Dev
       kernelsu_branch_other:
         required: false
         type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      make_release:
+        required: true
+        type: boolean
+        default: false
+      kernelsu_variant:
+        required: true
+        type: string
+        default: Next
+      kernelsu_branch:
+        required: true
+        type: string
+        default: Dev
+      kernelsu_branch_other:
+        required: false
+        type: string
+        default: ""
   
 jobs:
   build-kernel-a12-5-10-kernelsu-susfs:
