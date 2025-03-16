@@ -4,6 +4,10 @@ permissions:
   actions: write   # Allows triggering actions
 
 on:
+  workflow_dispatch:  # Allows manual trigger from GitHub UI or API
+  push:
+    paths:
+      - '.github/workflows/kernel-a12-5.10.yml'  # Runs when this workflow file is updated
   workflow_call:  # This allows this workflow to be called from another workflow
     inputs:
       make_release:
