@@ -34,7 +34,6 @@ on:
         description: "If 'Other' is selected, specify your custom branch"
         required: false
         type: string  # This input is required if 'Other' is chosen
-        default: ""  # Default is empty, but can be filled in if 'Other' is selected
 
 jobs:
   build-kernel-a12-5-10:
