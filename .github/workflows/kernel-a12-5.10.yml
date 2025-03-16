@@ -12,7 +12,7 @@ on:
       make_release:
         required: true
         type: boolean
-        default: false
+        default: true
       kernelsu_variant:
         required: true
         type: string
@@ -20,7 +20,7 @@ on:
       kernelsu_branch:
         required: true
         type: string
-        default: Dev
+        default: Stable
       kernelsu_branch_other:
         required: false
         type: string
