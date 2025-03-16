@@ -56,7 +56,7 @@ jobs:
     uses: ./.github/workflows/gki-kernel.yml
     secrets: inherit
     with:
-      make_release: ${{ inputs.make_release || 'false'}}
+      make_release: ${{ inputs.make_release || 'false' }}
       android_version: "android13"
       kernel_version: "5.10"
       sub_level: ${{ matrix.sub_level }}
