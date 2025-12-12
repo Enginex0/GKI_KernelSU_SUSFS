@@ -124,6 +124,9 @@ jobs:
             esac
             git checkout "$COMMIT"
             ;;
+          Next)
+            echo "Not Needed"
+            ;;
           KSU)
             echo "Not Needed"
             ;;
@@ -205,9 +208,16 @@ jobs:
               curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/setup.sh" | bash -s wild
             fi
             ;;
+          Next)
+            if [ -n "${{ inputs.ksu_commit }}" ]; then
+              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
+            else
+              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/kernel/setup.sh" | bash -s dev
+            fi
+            ;;
           KSU)
             if [ -n "${{ inputs.ksu_commit }}" ]; then
-              curl -LSs "https://raw.githubusercontent.com/WildKernels/KernelSU/main/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
+              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
             else
               curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
             fi
@@ -225,9 +235,15 @@ jobs:
             COMMIT_COUNT=$(git -C "$KERNEL_ROOT/Wild_KSU" rev-list --count HEAD)
             KSU_VERSION=$(expr $BASE_VERSION + $COMMIT_COUNT)
             ;;
+          Next)
+            # NEW scheme
+            BASE_VERSION=30000
+            COMMIT_COUNT=$(git -C "$KERNEL_ROOT/KernelSU-Next" rev-list --count HEAD)
+            KSU_VERSION=$(expr $BASE_VERSION + $COMMIT_COUNT)
+            ;;
           KSU)
             # NEW scheme
-            BASE_VERSION=20000
+            BASE_VERSION=30000
             COMMIT_COUNT=$(git -C "$KERNEL_ROOT/KernelSU" rev-list --count HEAD)
             KSU_VERSION=$(expr $BASE_VERSION + $COMMIT_COUNT)
             ;;
@@ -235,6 +251,7 @@ jobs:
         echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
 
     - name: Apply SUSFS Patches for KernelSU Variants
+      if: ${{ inputs.ksu_variant == 'WKSU' || inputs.ksu_variant != 'Next' || inputs.ksu_variant == 'KSU' }}
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         
@@ -242,6 +259,9 @@ jobs:
         case "${{ inputs.ksu_variant }}" in
           WKSU)
             SUSFS_VERSION="1.5.12"
+          ;;
+          Next)
+            SUSFS_VERSION="2.0.0"
           ;;
           KSU)
             SUSFS_VERSION="2.0.0"
@@ -259,6 +279,8 @@ jobs:
 
         if [ "${{ inputs.ksu_variant }}" == "WKSU" ]; then
           cd "$KERNEL_ROOT/Wild_KSU"
+        elif [ "${{ inputs.ksu_variant }}" == "Next" ]; then
+          cd "$KERNEL_ROOT/KernelSU-Next"
         elif [ "${{ inputs.ksu_variant }}" == "KSU" ]; then
           cd "$KERNEL_ROOT/KernelSU"
         fi
@@ -275,6 +297,9 @@ jobs:
             
             cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_kernel_compat.c.patch" ./
             patch -p1 < fix_kernel_compat.c.patch
+            ;;
+          Next)
+            # Your Next-specific code goes here
             ;;
           KSU)
             # Your KSU-specific code goes here
@@ -321,6 +346,9 @@ jobs:
               cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_task_mmu.c.patch ./
               patch -p1 < fix_task_mmu.c.patch || true
             fi
+            ;;
+          Next)
+            # Your Next-specific code goes here
             ;;
           KSU)
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 209 ]] ||
@@ -469,6 +497,11 @@ jobs:
         CONFIG_CFG80211=y
         CONFIG_MAC80211=y
         EOF
+
+        sed -i \
+          -e '/_COMMON_GKI_MODULES_LIST = \[/,/^[[:space:]]*\]/{/^[[:space:]]*"lib\/crypto\/libarc4\.ko",[[:space:]]*$/d}' \
+          -e '/_COMMON_GKI_MODULES_LIST = \[/,/^[[:space:]]*\]/{/^[[:space:]]*"net\/rfkill\/rfkill\.ko",[[:space:]]*$/d}' \
+          common/modules.bzl
 
     - name: Configure SND
       if: inputs.variant == 'vTomsonek'
@@ -644,13 +677,13 @@ jobs:
           exit 1
         fi
 
+    - name: Copy snd-aloop module
+      if: ${{ inputs.variant == 'vTomsonek' }}
+      run: |
         if [ "${{ inputs.variant }}" = "vTomsonek" ]; then
           sed -i 's|^do\.modules=.*|do.modules=1|' ./AnyKernel3/anykernel.sh
         fi
 
-    - name: Copy snd-aloop module
-      if: ${{ inputs.variant == 'vTomsonek' }}
-      run: |
         mkdir -p AnyKernel3/modules/data/adb/lkm
 
         if [[ "${{ inputs.android_version }}" == "android12" || "${{ inputs.android_version }}" == "android13" ]]; then
