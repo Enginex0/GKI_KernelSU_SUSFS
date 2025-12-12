@@ -45,16 +45,15 @@ jobs:
     - name: Set Environment Variables
       run: |
         CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
-        ROOT="$GITHUB_WORKSPACE"
-        KERNEL_ROOT="$ROOT/$CONFIG"
+        KERNEL_ROOT="$GITHUB_WORKSPACE/$CONFIG"
 
         cat >> $GITHUB_ENV << EOF
+        DEFCONFIG=$KERNEL_ROOT/common/arch/arm64/configs/gki_defconfig
         CONFIG=$CONFIG
-        ROOT=$ROOT
         KERNEL_ROOT=$KERNEL_ROOT
-        SUSFS4KSU=$ROOT/susfs4ksu
-        KERNEL_PATCHES=$ROOT/kernel_patches
-        ANYKERNEL3=$ROOT/AnyKernel3
+        SUSFS4KSU=$GITHUB_WORKSPACE/susfs4ksu
+        KERNEL_PATCHES=$GITHUB_WORKSPACE/kernel_patches
+        ANYKERNEL3=$GITHUB_WORKSPACE/AnyKernel3
         AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool
         MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py
         UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py
@@ -366,7 +365,7 @@ jobs:
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         curl -LSs https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
-        echo "CONFIG_BBG=y" >> common/arch/x86/configs/x86_64_defconfig
+        echo "CONFIG_BBG=y" >> common/arch/arm64/configs/gki_defconfig
         sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/lockdown/lockdown,baseband_guard/ } }' common/security/Kconfig
 
     - name: Apply Module Check Bypass
@@ -394,20 +393,6 @@ jobs:
 
         cp "$KERNEL_PATCHES/samsung/min_kdp/min_kdp.c" drivers/min_kdp.c
         echo "obj-y += min_kdp.o" >> drivers/Makefile
-
-    - name: Set Kernel Configuration Variables
-      working-directory: ${{ env.KERNEL_ROOT }}
-      run: |
-        echo "Initializing kernel configuration..."
-        echo "DEFCONFIG=$KERNEL_ROOT/common/arch/x86/configs/x86_64_defconfig" >> $GITHUB_ENV
-
-        # Remove check_defconfig
-        if [[ "${{ inputs.android_version }}" == "android16" && "${{ inputs.kernel_version }}" == "6.12" ]]; then
-          sed -i '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' common/BUILD.bazel
-          awk '/name = "kernel_aarch64"/,/^\)/ {if(/check_defconfig = "disabled"/) found=1} END{if(found) print "SUCCESS: check_defconfig = \"disabled\" is in the kernel_aarch64 block"; else print "FAILED: NOT in the kernel_aarch64 block"}' common/BUILD.bazel
-        else
-          sed -i 's/check_defconfig//' ./common/build.config.gki
-        fi
 
     - name: Configure Kernel Options
       working-directory: ${{ env.KERNEL_ROOT }}
@@ -460,6 +445,14 @@ jobs:
         CONFIG_KSU_SUSFS=y
         CONFIG_KSU_SUSFS_SUS_SU=n
         EOF
+
+        # Remove check_defconfig
+        if [[ "${{ inputs.android_version }}" == "android16" && "${{ inputs.kernel_version }}" == "6.12" ]]; then
+          sed -i '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' common/BUILD.bazel
+          awk '/name = "kernel_aarch64"/,/^\)/ {if(/check_defconfig = "disabled"/) found=1} END{if(found) print "SUCCESS: check_defconfig = \"disabled\" is in the kernel_aarch64 block"; else print "FAILED: NOT in the kernel_aarch64 block"}' common/BUILD.bazel
+        else
+          sed -i 's/check_defconfig//' ./common/build.config.gki
+        fi
 
     - name: Configure SND
       if: inputs.variant == 'vTomsonek'
