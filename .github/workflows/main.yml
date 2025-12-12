@@ -10,12 +10,12 @@ on:
       release_type:
         description: "Release Type"
         type: choice
-        options: [Actions, Pre-Release, Release]
+        options: [ Actions, Pre-Release, Release ]
         default: Actions
       ksu_variant:
         description: "KernelSU Variant"
         type: choice
-        options: [KSU, WKSU]
+        options: [ KSU, WKSU ]
         default: KSU
       ksu_commit:
         description: "KSU Commit (optional)"
@@ -125,150 +125,150 @@ jobs:
     runs-on: ubuntu-latest
     if: inputs.release_type != 'Actions'
     needs:
-      - build-a12-5-10
-      - build-a13-5-10
-      - build-a13-5-15
-      - build-a14-5-15
-      - build-a14-6-1
-      - build-a15-6-6
-      - build-a16-6-12
-      - build-custom
+    - build-a12-5-10
+    - build-a13-5-10
+    - build-a13-5-15
+    - build-a14-5-15
+    - build-a14-6-1
+    - build-a15-6-6
+    - build-a16-6-12
+    - build-custom
 
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_NAME: "GKI Kernels With WKSU & SUSFS v1.5.12"
       RELEASE_BODY: ""
     steps:
-      - name: Download Apache Arrow's util_free_space.sh
-        if: false
-        run: |
-          curl -L -o util_free_space.sh https://raw.githubusercontent.com/apache/arrow/main/ci/scripts/util_free_space.sh
-          chmod +x util_free_space.sh
-          ./util_free_space.sh
-      
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Download Apache Arrow's util_free_space.sh
+      if: false
+      run: |
+        curl -L -o util_free_space.sh https://raw.githubusercontent.com/apache/arrow/main/ci/scripts/util_free_space.sh
+        chmod +x util_free_space.sh
+        ./util_free_space.sh
 
-      - name: Generate New Tag
-        if: inputs.release_type != 'Actions'
-        run: |
-            LATEST_TAG=$(gh api repos/${{ github.repository }}/tags --jq '.[0].name' 2>/dev/null || echo "")
-            NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
-    
-            echo "New tag: $NEW_TAG"
-            echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Set release body
-        run: |
-          cat << 'EOF' > release_body.md
-      
-          **IMPORTANT DISCLAIMER**
-          This software is provided for testing and educational purposes only. Use at your own risk.
-          The developers are not responsible for any damage, data loss, or issues that may occur.
-          Please ensure you have proper backups before installation.
+    - name: Generate New Tag
+      if: inputs.release_type != 'Actions'
+      run: |
+        LATEST_TAG=$(gh api repos/${{ github.repository }}/tags --jq '.[0].name' 2>/dev/null || echo "")
+        NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
 
-          🔹 Normal 
-          - Default kernel configuration 
-          - Standard kernel module loading behavior 
-          - Recommended for most users 
+        echo "New tag: $NEW_TAG"
+        echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
 
-          🔹 Bypass 
-          - Includes module check bypass modifications 
-          - What are kernel modules? Kernel modules are pieces of code that can be loaded into the kernel at runtime to extend functionality (like device drivers, filesystem support, etc.). These are different from KernelSU/Magisk modules. 
-          - The Problem: Sometimes when installing a custom kernel, the device tries to load a kernel module that fails due to version mismatches, missing dependencies, or signature verification issues. This can cause boot failures or device instability. 
-          - The Solution: This version changes one line from false to true to force load the kernel module, bypassing the failure check that would normally prevent loading.
+    - name: Set release body
+      run: |
+        cat << 'EOF' > release_body.md
 
-          Features:
-          -> Wild KSU
-          -> Multi Manager Support for WKSU, KernelSU-Next! Needs Testing: KSU, MKSU RKSU, xxKSU, KowSU and SukiSU (Best compatibility with WKSU, no support will be provided for other managers)
-          -> SUSFS ඞ v1.5.12
-          -> Scope-Minimized Manual hooks v1.4
-          -> Ptrace Patch Support for Older Kernels (<5.16)
-          -> IPSet Support for Advanced Network Filtering
-          -> Wireguard Support
-          -> BBR v1 Support
-          -> Added BBG support to prevent unauthorised writes to certain partitions: https://github.com/vc-teahouse/Baseband-guard
+        **IMPORTANT DISCLAIMER**
+        This software is provided for testing and educational purposes only. Use at your own risk.
+        The developers are not responsible for any damage, data loss, or issues that may occur.
+        Please ensure you have proper backups before installation.
 
-          🔹 BBG (Baseband-guard)
-          - A lightweight LSM (Linux Security Module) for Android kernel
-          - Blocks unauthorized writes to critical partitions/device nodes
-          - Prevents malicious tampering with baseband and boot chain
-          - Kernel-level protection via LSM hooks
-          - Reduces risk of soft-brick/hard-brick issues
+        🔹 Normal 
+        - Default kernel configuration 
+        - Standard kernel module loading behavior 
+        - Recommended for most users 
 
-          Notes:
-          -> SUS SU Mode 2 will show as disabled or not compatible due to non-kprobe hooks and is not needed anymore!
-          -> Official Kernel Flasher is broken with latest susfs, try https://github.com/fatalcoder524/KernelFlasher/
-          -> **boot.img files**: Available as CI artifacts only - download from the Actions tab in the "Misc" Artifact
-          -> **Warning**: boot.img files may not boot on some devices
-          -> **Note:** For detailed commit information and component versions, please check the build summary in the "Misc" Artifact
+        🔹 Bypass 
+        - Includes module check bypass modifications 
+        - What are kernel modules? Kernel modules are pieces of code that can be loaded into the kernel at runtime to extend functionality (like device drivers, filesystem support, etc.). These are different from KernelSU/Magisk modules. 
+        - The Problem: Sometimes when installing a custom kernel, the device tries to load a kernel module that fails due to version mismatches, missing dependencies, or signature verification issues. This can cause boot failures or device instability. 
+        - The Solution: This version changes one line from false to true to force load the kernel module, bypassing the failure check that would normally prevent loading.
 
-          Module: 
-          -> https://github.com/sidex15/ksu_module_susfs
-      
-          Managers:
-          -> WKSU: https://github.com/WildKernels/Wild_KSU
-          -> Next: https://github.com/KernelSU-Next/KernelSU-Next
-          EOF
+        Features:
+        -> Wild KSU
+        -> Multi Manager Support for WKSU, KernelSU-Next! Needs Testing: KSU, MKSU RKSU, xxKSU, KowSU and SukiSU (Best compatibility with WKSU, no support will be provided for other managers)
+        -> SUSFS ඞ v1.5.12
+        -> Scope-Minimized Manual hooks v1.4
+        -> Ptrace Patch Support for Older Kernels (<5.16)
+        -> IPSet Support for Advanced Network Filtering
+        -> Wireguard Support
+        -> BBR v1 Support
+        -> Added BBG support to prevent unauthorised writes to certain partitions: https://github.com/vc-teahouse/Baseband-guard
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.NEW_TAG }}
-          prerelease: ${{ inputs.release_type == 'Pre-Release' }}
-          files: ""
-          name: ${{ env.RELEASE_NAME }}
-          body_path: release_body.md
+        🔹 BBG (Baseband-guard)
+        - A lightweight LSM (Linux Security Module) for Android kernel
+        - Blocks unauthorized writes to critical partitions/device nodes
+        - Prevents malicious tampering with baseband and boot chain
+        - Kernel-level protection via LSM hooks
+        - Reduces risk of soft-brick/hard-brick issues
 
-      - name: Download Artifacts
-        uses: actions/download-artifact@v5
-        with:
-          path: ./downloaded-artifacts
-          pattern: '*-AnyKernel3'
+        Notes:
+        -> SUS SU Mode 2 will show as disabled or not compatible due to non-kprobe hooks and is not needed anymore!
+        -> Official Kernel Flasher is broken with latest susfs, try https://github.com/fatalcoder524/KernelFlasher/
+        -> **boot.img files**: Available as CI artifacts only - download from the Actions tab in the "Misc" Artifact
+        -> **Warning**: boot.img files may not boot on some devices
+        -> **Note:** For detailed commit information and component versions, please check the build summary in the "Misc" Artifact
 
-      - name: Upload Release Assets
-        run: |
-          shopt -s nullglob
-          anykernel_dirs=(./downloaded-artifacts/*-AnyKernel3/)
+        Module: 
+        -> https://github.com/sidex15/ksu_module_susfs
+
+        Managers:
+        -> WKSU: https://github.com/WildKernels/Wild_KSU
+        -> Next: https://github.com/KernelSU-Next/KernelSU-Next
+        EOF
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ env.NEW_TAG }}
+        prerelease: ${{ inputs.release_type == 'Pre-Release' }}
+        files: ""
+        name: ${{ env.RELEASE_NAME }}
+        body_path: release_body.md
+
+    - name: Download Artifacts
+      uses: actions/download-artifact@v5
+      with:
+        path: ./downloaded-artifacts
+        pattern: '*-AnyKernel3'
+
+    - name: Upload Release Assets
+      run: |+
+        shopt -s nullglob
+        anykernel_dirs=(./downloaded-artifacts/*-AnyKernel3/)
+
+        if [ ${#anykernel_dirs[@]} -eq 0 ]; then
+          echo "No AnyKernel3 artifact directories found; skipping upload."
+          exit 0
+        fi
+
+        echo "Found ${#anykernel_dirs[@]} artifacts to process"
+
+        # Create all ZIPs in parallel
+        for dir in "${anykernel_dirs[@]}"; do
+          artifact_name=$(basename "$dir")
+          echo "Creating ZIP for $artifact_name..."
+          (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" ./*) &
+        done
+        wait
+
+        # Upload all ZIPs
+        for dir in "${anykernel_dirs[@]}"; do
+          artifact_name=$(basename "$dir")
+          echo "Uploading ${artifact_name}.zip..."
+          gh release upload "${{ env.NEW_TAG }}" "${artifact_name}.zip" --clobber
+        done
           
-          if [ ${#anykernel_dirs[@]} -eq 0 ]; then
-            echo "No AnyKernel3 artifact directories found; skipping upload."
-            exit 0
-          fi
-          
-          echo "Found ${#anykernel_dirs[@]} artifacts to process"
-          
-          # Create all ZIPs in parallel
-          for dir in "${anykernel_dirs[@]}"; do
-            artifact_name=$(basename "$dir")
-            echo "Creating ZIP for $artifact_name..."
-            (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" ./*) &
-          done
-          wait
-          
-          # Upload all ZIPs
-          for dir in "${anykernel_dirs[@]}"; do
-            artifact_name=$(basename "$dir")
-            echo "Uploading ${artifact_name}.zip..."
-            gh release upload "${{ env.NEW_TAG }}" "${artifact_name}.zip" --clobber
-          done
-            
-      - name: Send Telegram Notification
-        if: inputs.release_type != 'Actions'
-        run: |
-          RELEASE_TYPE_TEXT=""
-          if [ "${{ inputs.release_type }}" == "Pre-Release" ]; then
-            RELEASE_TYPE_TEXT="🧪 *Pre-Release*"
-          else
-            RELEASE_TYPE_TEXT="🚀 *Release*"
-          fi
-          
-          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -F message_thread_id="${{ secrets.TELEGRAM_TOPIC_ID_GKI }}" \
-            -F text="
-            🌽 *New Kernel $RELEASE_TYPE_TEXT Uploaded*  
-            📦 *Repository:* [${{ github.repository }}](https://github.com/${{ github.repository }})  
-            ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})  
-            [🔗 View GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.NEW_TAG }})" \
-            -F parse_mode="Markdown"
+    - name: Send Telegram Notification
+      if: inputs.release_type != 'Actions'
+      run: |
+        RELEASE_TYPE_TEXT=""
+        if [ "${{ inputs.release_type }}" == "Pre-Release" ]; then
+          RELEASE_TYPE_TEXT="🧪 *Pre-Release*"
+        else
+          RELEASE_TYPE_TEXT="🚀 *Release*"
+        fi
+
+        curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -F message_thread_id="${{ secrets.TELEGRAM_TOPIC_ID_GKI }}" \
+          -F text="
+          🌽 *New Kernel $RELEASE_TYPE_TEXT Uploaded*  
+          📦 *Repository:* [${{ github.repository }}](https://github.com/${{ github.repository }})  
+          ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})  
+          [🔗 View GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.NEW_TAG }})" \
+          -F parse_mode="Markdown"

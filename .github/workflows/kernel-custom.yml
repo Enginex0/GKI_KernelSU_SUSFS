@@ -20,21 +20,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - android_version: "android12"
-            kernel_version: "5.10"
-            sub_level: "226"
-            os_patch_level: "2024-11"
-            variant: "vTomsonek"
-          - android_version: "android14"
-            kernel_version: "6.1"
-            sub_level: "134"
-            os_patch_level: "2025-05"
-            variant: "TheWildJames"
-          #- android_version: "android14"
-          #  kernel_version: "6.1"
-          #  sub_level: "147"
-          #  os_patch_level: "2025-12"
-          #  variant: "MarionKernel"
+        - android_version: "android12"
+          kernel_version: "5.10"
+          sub_level: "226"
+          os_patch_level: "2024-11"
+          variant: "vTomsonek"
+        - android_version: "android14"
+          kernel_version: "6.1"
+          sub_level: "134"
+          os_patch_level: "2025-05"
+          variant: "TheWildJames"
+        - android_version: "android14"
+          kernel_version: "6.1"
+          sub_level: "157"
+          os_patch_level: "2025-12"
+          variant: "MarionKernel"
 
     uses: ./.github/workflows/build.yml
     secrets: inherit
