@@ -41,7 +41,7 @@ jobs:
               inputs.variant == 'vTomsonek' && '["vTomsonek"]' ||
               inputs.variant == 'TheWildJames' && '["TheWildJames"]' ||
               inputs.variant == 'MarionKernel' && '["MarionKernel"]' ||
-              inputs.variant == 'KrisKernel' && '["KrisKernel"]' ||
+              inputs.variant == 'Hakan' && '["Hakan"]' ||
               '["Normal","Bypass"]'
             )
           }}
@@ -378,7 +378,7 @@ jobs:
         sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/lockdown/lockdown,baseband_guard/ } }' common/security/Kconfig
 
     - name: Apply Module Check Bypass
-      if: ${{ matrix.build_type == 'Bypass' || matrix.build_type == 'KrisKernel' }}
+      if: ${{ matrix.build_type == 'Bypass' || matrix.build_type == 'Hakan' }}
       run: |
         if [[ "${{ inputs.kernel_version }}" == "6.1" || "${{ inputs.kernel_version }}" == "6.6" || "${{ inputs.kernel_version }}" == "6.12" ]]; then
           sed -i '/bad_version:/{:a;n;/return 0;/{s/return 0;/return 1;/;b};ba}' "$KERNEL_ROOT/common/kernel/module/version.c"
@@ -461,7 +461,7 @@ jobs:
         fi
 
     - name: Configure Audio Modules
-      if: inputs.variant == 'KrisKernel'
+      if: inputs.variant == 'Hakan'
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         cat >> "${{ env.DEFCONFIG }}" << 'EOF'
@@ -600,8 +600,8 @@ jobs:
             MarionKernel)
               perl -i -0777 -pe 's/(.*)echo "\$res"/$1echo "\$res-Wild-MarionKernel"/s' ./common/scripts/setlocalversion
               ;;
-            KrisKernel)
-              perl -i -0777 -pe 's/(.*)echo "\$res"/$1echo "\$res-Wild-KrisKernel"/s' ./common/scripts/setlocalversion
+            Hakan)
+              perl -i -0777 -pe 's/(.*)echo "\$res"/$1echo "\$res-Wild-Hakan"/s' ./common/scripts/setlocalversion
               ;;
             *)
               perl -i -0777 -pe 's/(.*)echo "\$res"/$1echo "\$res-Wild"/s' ./common/scripts/setlocalversion
