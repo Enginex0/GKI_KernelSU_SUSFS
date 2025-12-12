@@ -35,7 +35,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build_type: ${{ fromJSON(inputs.variant == 'vTomsonek' && '["vTomsonek"]' || inputs.variant == 'TheWildJames' && '["TheWildJames"]' || inputs.variant == 'MarionKernel' && '["MarionKernel"]' || '["Normal","Bypass"]') }}
+        build_type: >-
+          ${{
+            fromJSON(
+              inputs.variant == 'vTomsonek' && '["vTomsonek"]' ||
+              inputs.variant == 'TheWildJames' && '["TheWildJames"]' ||
+              inputs.variant == 'MarionKernel' && '["MarionKernel"]' ||
+              inputs.variant == 'KrisKernel' && '["KrisKernel"]' ||
+              '["Normal","Bypass"]'
+            )
+          }}
 
     steps:
     - name: Maximize Build Space
@@ -369,7 +378,7 @@ jobs:
         sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/lockdown/lockdown,baseband_guard/ } }' common/security/Kconfig
 
     - name: Apply Module Check Bypass
-      if: ${{ matrix.build_type == 'Bypass' }}
+      if: ${{ matrix.build_type == 'Bypass' || matrix.build_type == 'KrisKernel' }}
       run: |
         if [[ "${{ inputs.kernel_version }}" == "6.1" || "${{ inputs.kernel_version }}" == "6.6" || "${{ inputs.kernel_version }}" == "6.12" ]]; then
           sed -i '/bad_version:/{:a;n;/return 0;/{s/return 0;/return 1;/;b};ba}' "$KERNEL_ROOT/common/kernel/module/version.c"
@@ -439,9 +448,6 @@ jobs:
         CONFIG_IP_SET_HASH_NETIFACE=y
         CONFIG_IP_SET_LIST_SET=y
 
-        CONFIG_CFG80211=y
-        CONFIG_MAC80211=y
-
         CONFIG_KSU_SUSFS=y
         CONFIG_KSU_SUSFS_SUS_SU=n
         EOF
@@ -453,6 +459,16 @@ jobs:
         else
           sed -i 's/check_defconfig//' ./common/build.config.gki
         fi
+
+    - name: Configure Audio Modules
+      if: inputs.variant == 'KrisKernel'
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        cat >> "${{ env.DEFCONFIG }}" << 'EOF'
+        CONFIG_RFKILL=y
+        CONFIG_CFG80211=y
+        CONFIG_MAC80211=y
+        EOF
 
     - name: Configure SND
       if: inputs.variant == 'vTomsonek'
@@ -582,7 +598,10 @@ jobs:
               perl -i -0777 -pe 's/(.*)echo "\$res"/$1echo "\$res-🟢-Wild-Exclusive"/s' ./common/scripts/setlocalversion
               ;;
             MarionKernel)
-              perl -i -0777 -pe 's/(.*)echo "\$res"/$1echo "\$res-MarionKernel"/s' ./common/scripts/setlocalversion
+              perl -i -0777 -pe 's/(.*)echo "\$res"/$1echo "\$res-Wild-MarionKernel"/s' ./common/scripts/setlocalversion
+              ;;
+            KrisKernel)
+              perl -i -0777 -pe 's/(.*)echo "\$res"/$1echo "\$res-Wild-KrisKernel"/s' ./common/scripts/setlocalversion
               ;;
             *)
               perl -i -0777 -pe 's/(.*)echo "\$res"/$1echo "\$res-Wild"/s' ./common/scripts/setlocalversion
