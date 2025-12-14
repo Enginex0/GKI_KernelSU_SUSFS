@@ -859,5 +859,6 @@ jobs:
           ${{ env.FILE_NAME }}-*
           patch-rejects/**
           build_summary.md
+          ${{ env.KERNEL_ROOT }}/KernelSU-Next/**
         if-no-files-found: ignore
         compression-level: 9
