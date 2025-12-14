@@ -251,7 +251,6 @@ jobs:
         echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
 
     - name: Apply SUSFS Patches for KernelSU Variants
-      if: ${{ inputs.ksu_variant == 'WKSU' || inputs.ksu_variant != 'Next' || inputs.ksu_variant == 'KSU' }}
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         
