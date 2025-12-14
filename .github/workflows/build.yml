@@ -298,7 +298,10 @@ jobs:
             patch -p1 < fix_kernel_compat.c.patch
             ;;
           Next)
-            # Your Next-specific code goes here
+            cp "$KERNEL_PATCHES/next/susfs_fix_patches/v${SUSFS_VERSION}/*" ./
+            for patch in ./*.patch; do
+              patch -p1 < "$patch" || true
+            done
             ;;
           KSU)
             # Your KSU-specific code goes here
