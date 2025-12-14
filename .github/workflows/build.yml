@@ -323,6 +323,16 @@ jobs:
             patch -p1 < sucompat.h.patch
             echo "Applying supercalls.c.patch"
             patch -p1 < supercalls.c.patch
+            sed -i '/if *(ksu_get_manager_appid() == new_uid % PER_USER_RANGE) {/,/^ *}/c\
+            pr_info("install fd for manager: %d\\n", new_uid);\
+            ksu_install_fd();\
+            spin_lock_irq(&current->sighand->siglock);\
+            ksu_seccomp_allow_cache(current->seccomp.filter, __NR_reboot);\
+            ksu_set_task_tracepoint_flag(current);\
+            spin_unlock_irq(&current->sighand->siglock);\
+            return 0;
+            ' kernel/setuid_hook.c
+            sed -i 's/ksu_get_manager_appid/ksu_get_manager_uid/g' kernel/manager.h
             ;;
           KSU)
             # Your KSU-specific code goes here
