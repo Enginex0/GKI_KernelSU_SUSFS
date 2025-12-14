@@ -284,6 +284,7 @@ jobs:
           cd "$KERNEL_ROOT/KernelSU"
         fi
         cp "$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" .
+        echo "Applying 10_enable_susfs_for_ksu.patch"
         patch -p1 < 10_enable_susfs_for_ksu.patch || true
 
         case "${{ inputs.ksu_variant }}" in
@@ -298,6 +299,7 @@ jobs:
             patch -p1 < fix_kernel_compat.c.patch
             ;;
           Next)
+            echo "Applying Next-specific SUSFS patches"
             cp "$KERNEL_PATCHES/next/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
             for p in ./*.patch; do
               patch -p1 < "$p" || true
