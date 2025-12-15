@@ -147,7 +147,7 @@ jobs:
           sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
         fi
 
-        $REPO --trace sync -c -j$(nproc --all) --no-tags --no-clone-bundle --fail-fast
+        $REPO --trace sync -c -j$(nproc --all) --fail-fast
 
     - name: Extract Sublevel and Set File Name
       run: |
