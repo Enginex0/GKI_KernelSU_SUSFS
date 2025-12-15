@@ -107,7 +107,8 @@ jobs:
 
         git clone https://github.com/WildKernels/AnyKernel3.git -b "$ANYKERNEL_BRANCH"
         git clone https://github.com/WildKernels/kernel_patches.git
-        git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
+        #git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
+        git clone https://gitlab.com/WildKernels/susfs4ksu.git -b "$SUSFS_BRANCH"
 
         cd susfs4ksu
         TARGET="${{ inputs.android_version }}-${{ inputs.kernel_version }}"
@@ -212,7 +213,7 @@ jobs:
             if [ -n "${{ inputs.ksu_commit }}" ]; then
               curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
             else
-              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+              curl -LSs "https://raw.githubusercontent.com/WildKernels/KernelSU-Next/next/kernel/setup.sh" | bash -s dev
             fi
             ;;
           KSU)
