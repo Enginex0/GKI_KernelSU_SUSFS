@@ -16,7 +16,7 @@ on:
         description: "KernelSU Variant"
         type: choice
         options: [ KSU, WKSU, Next ]
-        default: KSU
+        default: Next
       ksu_commit:
         description: "KSU Commit (optional)"
         type: string
@@ -26,31 +26,31 @@ on:
       build_a12_5_10:
         description: "Android 12 - 5.10"
         type: boolean
-        default: true
+        default: false
       build_a13_5_10:
         description: "Android 13 - 5.10"
         type: boolean
-        default: true
+        default: false
       build_a13_5_15:
         description: "Android 13 - 5.15"
         type: boolean
-        default: true
+        default: false
       build_a14_5_15:
         description: "Android 14 - 5.15"
         type: boolean
-        default: true
+        default: false
       build_a14_6_1:
         description: "Android 14 - 6.1"
         type: boolean
-        default: true
+        default: false
       build_a15_6_6:
         description: "Android 15 - 6.6"
         type: boolean
-        default: true
+        default: false
       build_a16_6_12:
         description: "Android 16 - 6.12"
         type: boolean
-        default: true
+        default: false
       build_custom:
         description: "Custom Builds"
         type: boolean
