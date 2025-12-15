@@ -301,7 +301,7 @@ jobs:
             ;;
           Next)
             echo "Applying Next-specific SUSFS patches"
-            cp "$KERNEL_PATCHES/next/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
+            cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
             echo "Applying allowlist.c.patch"
             patch -p1 < allowlist.c.patch
             echo "Applying apk_sign.c.patch"
@@ -678,7 +678,7 @@ jobs:
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         set -ex
-        export KBUILD_BUILD_TIMESTAMP="$(date -u)"
+        #export KBUILD_BUILD_TIMESTAMP="$(date -u)"
         if [ -f "build/build.sh" ]; then
           LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
