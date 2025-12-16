@@ -318,10 +318,6 @@ jobs:
             echo "================================================="
             patch -p1 < allowlist.c.patch
             echo "================================================="
-            echo "Applying apk_sign.c.patch"
-            echo "================================================="
-            patch -p1 < apk_sign.c.patch
-            echo "================================================="
             echo "Applying kernel_umount.c.patch"
             echo "================================================="
             patch -p1 < kernel_umount.c.patch
