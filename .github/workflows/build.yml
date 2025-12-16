@@ -285,40 +285,69 @@ jobs:
           cd "$KERNEL_ROOT/KernelSU"
         fi
         cp "$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" .
+        echo "================================================="
         echo "Applying 10_enable_susfs_for_ksu.patch"
+        echo "================================================="
         patch -p1 < 10_enable_susfs_for_ksu.patch || true
 
         case "${{ inputs.ksu_variant }}" in
           WKSU)
             cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_core_hook.c.patch" ./
+            echo "================================================="
+            echo "Applying fix_core_hook.c.patch"
+            echo "================================================="
             patch -p1 < fix_core_hook.c.patch
             
             cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_sucompat.c.patch" ./
+            echo "================================================="
+            echo "Applying fix_sucompat.c.patch"
+            echo "================================================="
             patch -p1 < fix_sucompat.c.patch
             
             cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_kernel_compat.c.patch" ./
+            echo "================================================="
+            echo "Applying fix_kernel_compat.c.patch"
+            echo "================================================="
             patch -p1 < fix_kernel_compat.c.patch
             ;;
           Next)
             echo "Applying Next-specific SUSFS patches"
             cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
+            echo "================================================="
             echo "Applying allowlist.c.patch"
+            echo "================================================="
             patch -p1 < allowlist.c.patch
+            echo "================================================="
             echo "Applying apk_sign.c.patch"
+            echo "================================================="
             patch -p1 < apk_sign.c.patch
+            echo "================================================="
             echo "Applying kernel_umount.c.patch"
+            echo "================================================="
             patch -p1 < kernel_umount.c.patch
+            echo "================================================="
             echo "Applying ksu.c.patch"
+            echo "================================================="
             patch -p1 < ksu.c.patch
+            echo "================================================="
             echo "Applying ksud.c.patch"
+            echo "================================================="
             patch -p1 < ksud.c.patch
-            echo "Applying Makefile.patch"
-            patch -p1 < Makefile.patch
+            echo "================================================="
+            echo "Applying Kbuild.patch"
+            echo "================================================="
+            patch -p1 < Kbuild.patch
+            echo "================================================="
             echo "Applying selinux.c.patch"
+            echo "================================================="
             patch -p1 < selinux.c.patch
+            echo "================================================="
             echo "Applying sucompat.c.patch"
+            echo "================================================="
             patch -p1 < sucompat.c.patch
+            echo "================================================="
             echo "Applying supercalls.c.patch"
+            echo "================================================="
             patch -p1 < supercalls.c.patch
             ;;
           KSU)
