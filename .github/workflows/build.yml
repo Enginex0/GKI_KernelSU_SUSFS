@@ -315,37 +315,7 @@ jobs:
             echo "Applying Next-specific SUSFS patches"
             cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
             echo "================================================="
-            echo "Applying allowlist.c.patch"
-            echo "================================================="
-            patch -p1 < allowlist.c.patch
-            echo "================================================="
-            echo "Applying kernel_umount.c.patch"
-            echo "================================================="
-            patch -p1 < kernel_umount.c.patch
-            echo "================================================="
-            echo "Applying ksu.c.patch"
-            echo "================================================="
-            patch -p1 < ksu.c.patch
-            echo "================================================="
-            echo "Applying ksud.c.patch"
-            echo "================================================="
-            patch -p1 < ksud.c.patch
-            echo "================================================="
-            echo "Applying Kbuild.patch"
-            echo "================================================="
-            patch -p1 < Kbuild.patch
-            echo "================================================="
-            echo "Applying selinux.c.patch"
-            echo "================================================="
-            patch -p1 < selinux.c.patch
-            echo "================================================="
-            echo "Applying sucompat.c.patch"
-            echo "================================================="
-            patch -p1 < sucompat.c.patch
-            echo "================================================="
-            echo "Applying supercalls.c.patch"
-            echo "================================================="
-            patch -p1 < supercalls.c.patch
+            patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
             ;;
           KSU)
             # Your KSU-specific code goes here
