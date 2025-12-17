@@ -276,51 +276,28 @@ jobs:
         cd "$KERNEL_ROOT/common"
         cp "$SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch" ./
         patch -p1 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
-        cd "$KERNEL_ROOT"
-
-        if [ "${{ inputs.ksu_variant }}" == "WKSU" ]; then
-          cd "$KERNEL_ROOT/Wild_KSU"
-        elif [ "${{ inputs.ksu_variant }}" == "Next" ]; then
-          cd "$KERNEL_ROOT/KernelSU-Next"
-        elif [ "${{ inputs.ksu_variant }}" == "KSU" ]; then
-          cd "$KERNEL_ROOT/KernelSU"
-        fi
 
         case "${{ inputs.ksu_variant }}" in
           WKSU)
-            echo "-------------------------------------------------"
-            echo "Applying SUSFS Patches"
-            echo "-------------------------------------------------"
+            cd "$KERNEL_ROOT/Wild_KSU"
             cp "$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" .
-            echo ""
             patch -p1 < 10_enable_susfs_for_ksu.patch || true
             cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_core_hook.c.patch" ./
-            echo ""
             patch -p1 < fix_core_hook.c.patch
-            
             cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_sucompat.c.patch" ./
-            echo ""
             patch -p1 < fix_sucompat.c.patch
-            
             cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_kernel_compat.c.patch" ./
-            echo ""
             patch -p1 < fix_kernel_compat.c.patch
             ;;
           Next)
-            echo "-------------------------------------------------"
-            echo "Applying Next-specific SUSFS patches"
-            echo "-------------------------------------------------"
+            d "$KERNEL_ROOT/KernelSU-Next"
             cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
             patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
             ;;
           KSU)
-            echo "-------------------------------------------------"
-            echo "Applying SUSFS Patches"
-            echo "-------------------------------------------------"
+            cd "$KERNEL_ROOT/KernelSU"
             cp "$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" .
-            echo ""
             patch -p1 < 10_enable_susfs_for_ksu.patch || true
-            # Your KSU-specific code goes here
             ;;
         esac
 
