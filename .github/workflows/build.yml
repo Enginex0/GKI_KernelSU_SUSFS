@@ -290,7 +290,7 @@ jobs:
             patch -p1 < fix_kernel_compat.c.patch
             ;;
           Next)
-            d "$KERNEL_ROOT/KernelSU-Next"
+            cd "$KERNEL_ROOT/KernelSU-Next"
             cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
             patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
             ;;
