@@ -146,7 +146,13 @@ jobs:
         set -e
 
         ROOT="./downloaded-rejects"
-        OUT="combined_reject_summary.md"
+        
+        # Prepare output directory
+        OUTPUT_DIR="combined_rejects"
+        SAMPLES_DIR="$OUTPUT_DIR/samples"
+        mkdir -p "$SAMPLES_DIR"
+        
+        OUT="$OUTPUT_DIR/summary.md"
 
         echo "# Combined Patch Reject Summary" > "$OUT"
 
@@ -201,6 +207,21 @@ jobs:
           rest="${rel_full#*/}"           # e.g., patch-rejects/fs/inode.c.rej
           file_path="${rest#patch-rejects/}" # e.g., fs/inode.c.rej
           
+          # Save sample files if not already saved for this SHA
+          if [ ! -d "$SAMPLES_DIR/$sha" ]; then
+             mkdir -p "$SAMPLES_DIR/$sha"
+             # Copy the reject file
+             cp "$f" "$SAMPLES_DIR/$sha/"
+             
+             # Copy the original file if it exists alongside the reject
+             # The input artifact structure is: ArtifactName/patch-rejects/path/to/file.rej
+             # and potentially: ArtifactName/patch-rejects/path/to/file
+             orig="${f%.rej}"
+             if [ -f "$orig" ]; then
+                cp "$orig" "$SAMPLES_DIR/$sha/"
+             fi
+          fi
+          
           printf '%s\t%s\t%s\n' "$sha" "$file_path" "$artifact" >> "$TMP"
         done
 
@@ -224,6 +245,9 @@ jobs:
               print "### Reject Content Hash: `" s "`"
               print "**File(s)**: " files[s]
               print ""
+              print "> [!TIP]"
+              print "> **Fix it fast**: Check the folder `samples/" s "/` in this artifact for the `.rej` and original file."
+              print ""
               print "<details>"
               print "<summary><strong>Found in " count[s] " kernel(s)</strong> (click to expand)</summary>"
               print ""
@@ -243,7 +267,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: Combined-Reject-Summary
-        path: combined_reject_summary.md
+        path: combined_rejects/
         if-no-files-found: error
         compression-level: 9
 

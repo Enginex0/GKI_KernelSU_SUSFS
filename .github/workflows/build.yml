@@ -798,7 +798,7 @@ jobs:
 
         if [ ! -s "$REJECTS_DIR/index.txt" ]; then
           echo "No patch rejects found." >> "$OUT"
-          cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
+          # cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
           exit 0
         fi
 
@@ -853,7 +853,7 @@ jobs:
 
         rm -f "$TMP"
 
-        cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
+        # cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
