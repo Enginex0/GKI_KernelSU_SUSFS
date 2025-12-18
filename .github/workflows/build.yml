@@ -782,42 +782,263 @@ jobs:
     - name: Generate Build Summary
       if: ${{ always() }}
       run: |
-        cat > build_summary.md << EOF
-        # Kernel Build Summary
-        ## ${{ env.FILE_NAME }}
+        set -e
 
-        ## Build Information
-        - **Android Version**: ${{ inputs.android_version }}
-        - **Kernel Version**: ${{ inputs.kernel_version }}.$ACTUAL_SUBLEVEL
-        - **Build Type**: ${{ matrix.build_type }}
-        - **BBG**: Installed
-        EOF
+        REJECTS_DIR="$GITHUB_WORKSPACE/patch-rejects"
+        OUT="build_summary.md"
 
-        # Add component commits
-        for repo in "$KERNEL_ROOT/Wild_KSU:Wild_KSU:github.com/WildKernels/Wild_KSU" \
-                    "$KERNEL_ROOT/KernelSU:KernelSU:github.com/tiann/KernelSU" \
-                    "$KERNEL_ROOT/Baseband-guard:Baseband-guard:github.com/vc-teahouse/Baseband-guard" \
-                    "$SUSFS4KSU:SUSFS4KSU:gitlab.com/simonpunk/susfs4ksu/-"; do
-          IFS=: read -r path name url <<< "$repo"
-          if [ -d "$path" ]; then
-            commit=$(git -C "$path" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-            echo "- **$name**: [$commit](https://$url/commit/$commit)" >> build_summary.md
-          fi
-        done
+        {
+          echo "# Patch Reject Summary"
+          echo "## ${{ env.FILE_NAME }}"
+          echo ""
+          echo "- Rejects directory: \`$REJECTS_DIR\`"
+          echo "- Kernel root: \`$KERNEL_ROOT\`"
+          echo ""
+        } > "$OUT"
 
-        # Artifact status
-        echo -e "\n## Build Artifacts" >> build_summary.md
-        [ -f "AnyKernel3/Image" ] && echo "- ✅ AnyKernel3" >> build_summary.md || echo "- ❌ AnyKernel3" >> build_summary.md
-
-        # Count artifacts
-        artifacts=$(ls -1 "${{ env.FILE_NAME }}-"* 2>/dev/null | wc -l)
-        [ "$artifacts" -gt 0 ] && echo "- ✅ Misc ($artifacts files)" >> build_summary.md || echo "- ❌ Misc" >> build_summary.md
-
-        # Rejected patches
-        if [ -s patch-rejects/index.txt ]; then
-          echo -e "\n## ⚠️ Rejected Patches" >> build_summary.md
-          cat patch-rejects/index.txt >> build_summary.md
+        if [ ! -s "$REJECTS_DIR/index.txt" ]; then
+          echo "No patch rejects found." >> "$OUT"
+          cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
+          exit 0
         fi
+
+        sort -u "$REJECTS_DIR/index.txt" > "$REJECTS_DIR/index.sorted.txt"
+
+        echo "## Reject Files" >> "$OUT"
+        while IFS= read -r rel; do
+          [ -n "$rel" ] && echo "- \`$rel\`" >> "$OUT"
+        done < "$REJECTS_DIR/index.sorted.txt"
+
+        echo "" >> "$OUT"
+        echo "## Grouped By Directory (count)" >> "$OUT"
+        awk -F/ 'NF{dir=$0; sub(/\/[^[\/]]*$/, "", dir); if(dir==$0) dir="."; c[dir]++} END{for (d in c) printf "%d\t%s\n", c[d], d}' "$REJECTS_DIR/index.sorted.txt" \
+          | sort -nr \
+          | while IFS=
+        echo "" >> "$OUT"
+        echo "## Grouped By Reject Content (sha256)" >> "$OUT"
+
+        TMP="$(mktemp)"
+        while IFS= read -r rel; do
+          [ -n "$rel" ] || continue
+          f="$REJECTS_DIR/$rel"
+          if [ -f "$f" ]; then
+            sha=$(sha256sum "$f" | awk '{print $1}')
+            printf '%s\t%s\n' "$sha" "$rel" >> "$TMP"
+          else
+            printf '%s\t%s\n' "MISSING" "$rel" >> "$TMP"
+          fi
+        done < "$REJECTS_DIR/index.sorted.txt"
+
+        sort "$TMP" | awk -F'\t' '
+          $1=="MISSING" { missing[++mc]=$2; next }
+          {
+            sha=$1; rel=$2
+            if (sha!=prev) {
+              if (prev!="") print ""
+              print "### " sha
+            }
+            print "- `" rel "`"
+            prev=sha
+          }
+          END {
+            if (mc>0) {
+              print ""
+              print "### Missing files"
+              for (i=1; i<=mc; i++) print "- `" missing[i] "`"
+            }
+          }
+        ' >> "$OUT"
+
+        rm -f "$TMP"
+
+        cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.FILE_NAME }}-AnyKernel3
+        path: ./AnyKernel3/**
+        if-no-files-found: ignore
+        compression-level: 9
+
+    - name: Upload Rejects
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.FILE_NAME }}-Rejects
+        path: |
+          patch-rejects/**
+          build_summary.md
+        if-no-files-found: ignore
+        compression-level: 9
+
+    - name: Upload Misc Files
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.FILE_NAME }}-Misc
+        path: |
+          ${{ env.FILE_NAME }}-*
+          ${{ env.KERNEL_ROOT }}/KernelSU-Next/**
+        if-no-files-found: ignore
+        compression-level: 9
+
+# End of workflow
+\t' read -r cnt dir; do
+              [ -n "$dir" ] && echo "- **$cnt** \`$dir\`" >> "$OUT"
+            done
+
+        echo "" >> "$OUT"
+        echo "## Grouped By Reject Content (sha256)" >> "$OUT"
+
+        TMP="$(mktemp)"
+        while IFS= read -r rel; do
+          [ -n "$rel" ] || continue
+          f="$REJECTS_DIR/$rel"
+          if [ -f "$f" ]; then
+            sha=$(sha256sum "$f" | awk '{print $1}')
+            printf '%s\t%s\n' "$sha" "$rel" >> "$TMP"
+          else
+            printf '%s\t%s\n' "MISSING" "$rel" >> "$TMP"
+          fi
+        done < "$REJECTS_DIR/index.sorted.txt"
+
+        sort "$TMP" | awk -F'\t' '
+          $1=="MISSING" { missing[++mc]=$2; next }
+          {
+            sha=$1; rel=$2
+            if (sha!=prev) {
+              if (prev!="") print ""
+              print "### " sha
+            }
+            print "- `" rel "`"
+            prev=sha
+          }
+          END {
+            if (mc>0) {
+              print ""
+              print "### Missing files"
+              for (i=1; i<=mc; i++) print "- `" missing[i] "`"
+            }
+          }
+        ' >> "$OUT"
+
+        rm -f "$TMP"
+
+        cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.FILE_NAME }}-AnyKernel3
+        path: ./AnyKernel3/**
+        if-no-files-found: ignore
+        compression-level: 9
+
+    - name: Upload Misc Files
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.FILE_NAME }}-Misc
+        path: |
+          ${{ env.FILE_NAME }}-*
+          patch-rejects/**
+          build_summary.md
+          ${{ env.KERNEL_ROOT }}/KernelSU-Next/**
+        if-no-files-found: ignore
+        compression-level: 9
+
+  combined-reject-summary:
+    name: Combined Reject Summary
+    runs-on: ubuntu-latest
+    needs: build-gki
+    if: ${{ always() }}
+    steps:
+      - name: Download all Misc artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-Misc"
+          path: artifacts
+
+      - name: Generate combined reject summary
+        run: |
+          set -e
+
+          OUT="combined_reject_summary.md"
+          echo "# Combined Patch Reject Summary" > "$OUT"
+
+          shopt -s nullglob
+          found=0
+          for d in artifacts/*; do
+            [ -d "$d" ] || continue
+            found=1
+            echo "" >> "$OUT"
+            echo "---" >> "$OUT"
+            echo "" >> "$OUT"
+            if [ -f "$d/build_summary.md" ]; then
+              cat "$d/build_summary.md" >> "$OUT"
+            else
+              echo "## $(basename "$d")" >> "$OUT"
+              echo "No \`build_summary.md\` found in artifact." >> "$OUT"
+            fi
+          done
+
+          if [ "$found" -eq 0 ]; then
+            echo "" >> "$OUT"
+            echo "No artifacts matched \`*-Misc\`." >> "$OUT"
+          fi
+
+          cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload combined reject summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: Combined-Reject-Summary
+          path: combined_reject_summary.md
+          if-no-files-found: error
+          compression-level: 9
+\t' read -r cnt dir; do
+              [ -n "$dir" ] && echo "- **$cnt** \`$dir\`" >> "$OUT"
+            done
+
+        echo "" >> "$OUT"
+        echo "## Grouped By Reject Content (sha256)" >> "$OUT"
+
+        TMP="$(mktemp)"
+        while IFS= read -r rel; do
+          [ -n "$rel" ] || continue
+          f="$REJECTS_DIR/$rel"
+          if [ -f "$f" ]; then
+            sha=$(sha256sum "$f" | awk '{print $1}')
+            printf '%s %s\n' "$sha" "$rel" >> "$TMP"
+          else
+            printf '%s %s\n' "MISSING" "$rel" >> "$TMP"
+          fi
+        done < "$REJECTS_DIR/index.sorted.txt"
+
+        sort "$TMP" | awk '
+          $1=="MISSING" { missing[NR]=$2; next }
+          {
+            sha=$1; rel=$2
+            if (sha!=prev) {
+              if (prev!="") print ""
+              print "### " sha
+            }
+            print "- `" rel "`"
+            prev=sha
+          }
+          END {
+            if (length(missing)>0) {
+              print ""
+              print "### Missing files"
+              for (i in missing) print "- `" missing[i] "`"
+            }
+          }
+        ' >> "$OUT"
+
+        rm -f "$TMP"
+
+        cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
