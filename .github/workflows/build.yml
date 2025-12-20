@@ -106,7 +106,13 @@ jobs:
         ANYKERNEL_BRANCH="gki-2.0"
         SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
 
+        # Random delay to avoid rate limiting
+        DELAY=$((1 + RANDOM % 10))
+        echo "Sleeping for $DELAY seconds..."
+        sleep $DELAY
+
         git clone https://github.com/WildKernels/AnyKernel3.git -b "$ANYKERNEL_BRANCH"
+        rm -rf AnyKernel3/.git
         git clone https://github.com/WildKernels/kernel_patches.git
         #git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
         git clone https://gitlab.com/WildKernels/susfs4ksu.git -b "$SUSFS_BRANCH"
@@ -140,7 +146,9 @@ jobs:
         FORMATTED_BRANCH="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.os_patch_level }}"
 
         $REPO init -u https://android.googlesource.com/kernel/manifest \
-          -b common-${FORMATTED_BRANCH} --repo-rev=v2.16
+          -b common-${FORMATTED_BRANCH} 
+        
+        #--repo-rev=v2.16
 
         REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH})
         DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
