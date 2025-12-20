@@ -283,7 +283,8 @@ jobs:
         # Apply core SUSFS patches
         cd "$KERNEL_ROOT/common"
         cp "$SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch" ./
-        patch -p1 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
+        patch -p1 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch 
+        #|| true
 
         case "${{ inputs.ksu_variant }}" in
           WKSU)
