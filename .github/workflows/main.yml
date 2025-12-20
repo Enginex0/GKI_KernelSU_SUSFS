@@ -135,11 +135,11 @@ jobs:
     - build-custom
     if: ${{ always() }}
     steps:
-    - name: Download all Rejects artifacts
+    - name: Download all Misc artifacts
       uses: actions/download-artifact@v4
       with:
         path: ./downloaded-rejects
-        pattern: '*-Rejects'
+        pattern: '*-Misc'
 
     - name: Generate combined reject summary
       run: |
@@ -149,7 +149,9 @@ jobs:
         
         # Prepare output directory
         OUTPUT_DIR="combined_rejects"
+        REJ_AIO_DIR="$OUTPUT_DIR/REJ-AIO"
         SAMPLES_DIR="$OUTPUT_DIR/samples"
+        mkdir -p "$REJ_AIO_DIR"
         mkdir -p "$SAMPLES_DIR"
         
         OUT="$OUTPUT_DIR/summary.md"
@@ -161,12 +163,12 @@ jobs:
 
         if [ ${#misc_dirs[@]} -eq 0 ]; then
           echo "" >> "$OUT"
-          echo "No artifacts matched '*-Rejects'." >> "$OUT"
+          echo "No artifacts matched '*-Misc'." >> "$OUT"
           cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
           exit 0
         fi
 
-        # 1. Calculate Statistics
+        # 1. Organize Rejects into REJ-AIO and Calculate Statistics
         total_dirs=0
         clean_dirs=0
         reject_dirs=0
@@ -174,9 +176,30 @@ jobs:
         for d in "${misc_dirs[@]}"; do
           [ -d "$d" ] || continue
           ((total_dirs++))
+          
+          # Artifact name is the directory name
+          artifact_name=$(basename "$d")
+          
           # Check for .rej files recursively in this artifact
-          if [ -n "$(find "$d" -name '*.rej' -print -quit)" ]; then
+          # We look inside the 'patch-rejects' folder if it exists
+          if [ -d "$d/patch-rejects" ] && [ -n "$(find "$d/patch-rejects" -name '*.rej' -print -quit)" ]; then
             ((reject_dirs++))
+            
+            # Create a dedicated folder in REJ-AIO for this kernel
+            # Rename artifact from *-Misc to *-Rejects as requested
+            reject_name="${artifact_name%-Misc}-Rejects"
+            dest_dir="$REJ_AIO_DIR/$reject_name"
+            mkdir -p "$dest_dir"
+            
+            # Copy the patch-rejects content to Rejects folder inside destination
+            # Structure: REJ-AIO/Kernel-Rejects/Rejects/...
+            cp -r "$d/patch-rejects" "$dest_dir/Rejects"
+            
+            # Copy the build summary if it exists
+            if [ -f "$d/build_summary.md" ]; then
+                cp "$d/build_summary.md" "$dest_dir/"
+            fi
+            
           else
             ((clean_dirs++))
           fi
@@ -305,11 +328,8 @@ jobs:
       RELEASE_BODY: ""
     steps:
     - name: Download Apache Arrow's util_free_space.sh
-      if: false
       run: |
-        curl -L -o util_free_space.sh https://raw.githubusercontent.com/apache/arrow/main/ci/scripts/util_free_space.sh
-        chmod +x util_free_space.sh
-        ./util_free_space.sh
+        curl -Ls https://raw.githubusercontent.com/apache/arrow/main/ci/scripts/util_free_space.sh | bash
 
     - name: Checkout code
       uses: actions/checkout@v4
