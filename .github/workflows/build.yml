@@ -389,6 +389,7 @@ jobs:
         patch -p1 -F 3 < scope_min_manual_hooks_v1.4.patch
 
     - name: Apply Performance Patches
+      if: false
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
         MIN_VERSION="5.16"
@@ -418,9 +419,21 @@ jobs:
       if: ${{ matrix.build_type == 'Bypass' || matrix.build_type == 'Hakan' }}
       run: |
         if [[ "${{ inputs.kernel_version }}" == "6.1" || "${{ inputs.kernel_version }}" == "6.6" || "${{ inputs.kernel_version }}" == "6.12" ]]; then
-          sed -i '/bad_version:/{:a;n;/return 0;/{s/return 0;/return 1;/;b};ba}' "$KERNEL_ROOT/common/kernel/module/version.c"
+          TARGET_FILE="$KERNEL_ROOT/common/kernel/module/version.c"
         else
-          sed -i '/bad_version:/{:a;n;/return 0;/{s/return 0;/return 1;/;b};ba}' "$KERNEL_ROOT/common/kernel/module.c"
+          TARGET_FILE="$KERNEL_ROOT/common/kernel/module.c"
+        fi
+
+        echo "Applying bypass to $TARGET_FILE"
+        sed -i '/bad_version:/{:a;n;/return 0;/{s/return 0;/return 1;/;b};ba}' "$TARGET_FILE"
+
+        # Verify the bypass
+        if grep -A 5 "bad_version:" "$TARGET_FILE" | grep -q "return 1;"; then
+          echo "SUCCESS: Module check bypass verified in $TARGET_FILE"
+        else
+          echo "FAILED: Module check bypass not found in $TARGET_FILE"
+          grep -A 5 "bad_version:" "$TARGET_FILE" || true
+          exit 1
         fi
 
     - name: Fix WiFi and Bluetooth on Samsung 6.6 GKI devices
