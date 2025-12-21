@@ -139,174 +139,53 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         path: ./downloaded-rejects
-        pattern: '*-Misc'
+        pattern: '*-Normal-Misc'
 
     - name: Generate combined reject summary
       run: |
         set -e
-
+        
         ROOT="./downloaded-rejects"
+        OUTPUT_DIR="Combined-Rejects"
+        mkdir -p "$OUTPUT_DIR"
         
-        # Prepare output directory
-        OUTPUT_DIR="combined_rejects"
-        REJ_AIO_DIR="$OUTPUT_DIR/REJ-AIO"
-        SAMPLES_DIR="$OUTPUT_DIR/samples"
-        mkdir -p "$REJ_AIO_DIR"
-        mkdir -p "$SAMPLES_DIR"
-        
-        OUT="$OUTPUT_DIR/summary.md"
-
-        echo "# Combined Patch Reject Summary" > "$OUT"
-
         shopt -s nullglob
         misc_dirs=("$ROOT"/*)
-
+        
         if [ ${#misc_dirs[@]} -eq 0 ]; then
-          echo "" >> "$OUT"
-          echo "No artifacts matched '*-Misc'." >> "$OUT"
-          cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
+          echo "No artifacts matched '*-Misc'."
           exit 0
         fi
-
-        # 1. Organize Rejects into REJ-AIO and Calculate Statistics
-        total_dirs=0
-        clean_dirs=0
-        reject_dirs=0
+        
+        echo "Processing ${#misc_dirs[@]} artifacts..."
         
         for d in "${misc_dirs[@]}"; do
           [ -d "$d" ] || continue
-          ((total_dirs++))
           
           # Artifact name is the directory name
           artifact_name=$(basename "$d")
           
-          # Check for .rej files recursively in this artifact
-          # We look inside the 'patch-rejects' folder if it exists
-          if [ -d "$d/patch-rejects" ] && [ -n "$(find "$d/patch-rejects" -name '*.rej' -print -quit)" ]; then
-            ((reject_dirs++))
-            
-            # Create a dedicated folder in REJ-AIO for this kernel
-            # Rename artifact from *-Misc to *-Rejects as requested
-            reject_name="${artifact_name%-Misc}-Rejects"
-            dest_dir="$REJ_AIO_DIR/$reject_name"
-            mkdir -p "$dest_dir"
-            
-            # Copy the patch-rejects content to Rejects folder inside destination
-            # Structure: REJ-AIO/Kernel-Rejects/Rejects/...
-            cp -r "$d/patch-rejects" "$dest_dir/Rejects"
-            
-            # Copy the build summary if it exists
-            if [ -f "$d/build_summary.md" ]; then
-                cp "$d/build_summary.md" "$dest_dir/"
-            fi
-            
-          else
-            ((clean_dirs++))
+          # Remove "-Misc" suffix for cleaner folder name
+          kernel_name="${artifact_name%-Misc}"
+          
+          target_dir="$OUTPUT_DIR/$kernel_name"
+          
+          # Copy Rejects if they exist
+          if [ -d "$d/patch-rejects" ]; then
+             mkdir -p "$target_dir"
+            # Copy contents of patch-rejects (preserving directory structure) to target_dir
+            # We want: filename-folder/path/path/file.rej
+            cp -r "$d/patch-rejects/." "$target_dir/" 2>/dev/null || true
           fi
+          
         done
-
-        echo "## Build Statistics" >> "$OUT"
-        echo "- **Total Kernels Built**: $total_dirs" >> "$OUT"
-        echo "- **Clean Builds**: $clean_dirs" >> "$OUT"
-        echo "- **Builds with Rejects**: $reject_dirs" >> "$OUT"
-        echo "" >> "$OUT"
-
-        if [ "$reject_dirs" -eq 0 ]; then
-          echo "✅ All builds are clean! No patch rejects found." >> "$OUT"
-          cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
-          exit 0
-        fi
-
-        # 2. Group Rejects by Content
-        echo "## Global Rejects (Grouped by File)" >> "$OUT"
-        echo "> [!NOTE]" >> "$OUT"
-        echo "> **Why multiple variations?**" >> "$OUT"
-        echo "> If you see multiple variations for the same file, it means the \`.rej\` content differs. This happens when different kernel versions have different surrounding code (context) where the patch failed. You likely need to check the sample for each variation." >> "$OUT"
-        echo "" >> "$OUT"
-
-        TMP="$(mktemp)"
-        # Format: SHA256 \t FILE_PATH \t ARTIFACT_NAME
-        find "$ROOT" -type f -name '*.rej' | while read -r f; do
-          sha=$(sha256sum "$f" | awk '{print $1}' || echo "")
-          if [ -z "$sha" ]; then
-             echo "::warning::Failed to compute SHA for $f"
-             continue
-          fi
-          
-          rel_full=${f#"$ROOT"/}          # e.g., ArtifactName/patch-rejects/fs/inode.c.rej
-          artifact="${rel_full%%/*}"      # e.g., ArtifactName
-          rest="${rel_full#*/}"           # e.g., patch-rejects/fs/inode.c.rej
-          file_path="${rest#patch-rejects/}" # e.g., fs/inode.c.rej
-          
-          # Save sample files if not already saved for this SHA
-          if [ ! -d "$SAMPLES_DIR/$sha" ]; then
-             mkdir -p "$SAMPLES_DIR/$sha"
-             # Copy the reject file
-             cp "$f" "$SAMPLES_DIR/$sha/" || echo "::warning::Failed to copy reject file $f"
-             
-             # Copy the original file if it exists alongside the reject
-             orig="${f%.rej}"
-             if [ -f "$orig" ]; then
-                cp "$orig" "$SAMPLES_DIR/$sha/" || echo "::warning::Failed to copy original file $orig"
-             fi
-          fi
-          
-          # Format: FILE_PATH \t SHA256 \t ARTIFACT_NAME
-          printf '%s\t%s\t%s\n' "$file_path" "$sha" "$artifact" >> "$TMP"
-        done
-
-        # Sort by File Path (1st col), then SHA (2nd col)
-         sort -t$'\t' -k1,1 -k2,2 "$TMP" | awk -F'\t' '
-           {
-             file=$1; sha=$2; artifact=$3
-             
-             # Group artifacts by (File, SHA)
-             if (!seen[file, sha, artifact]++) {
-                count[file, sha]++
-                artifacts[file, sha] = (artifacts[file, sha] ? artifacts[file, sha] "\n" : "") "- " artifact
-                file_total[file]++
-             }
-             
-             # Track unique files and SHAs
-             if (!file_seen[file]++) unique_files[++f_idx] = file
-             if (!sha_seen[file, sha]++) unique_shas[file, ++s_idx[file]] = sha
-           }
-           END {
-             for (i=1; i<=f_idx; i++) {
-               f = unique_files[i]
-               print "## " f " (Failed in " file_total[f] " builds)"
-               
-               for (j=1; j<=s_idx[f]; j++) {
-                 s = unique_shas[f, j]
-                 
-                 print "### Variation " j " (Found in " count[f, s] " builds)"
-                 print "> [!TIP]"
-                 print "> **Fix it fast**: Check `samples/" s "/`"
-                 print ""
-                 print "<details>"
-                 print "<summary>Click to see kernel list</summary>"
-                 print ""
-                 print artifacts[f, s]
-                 print ""
-                 print "</details>"
-                 print ""
-               }
-               print "---"
-               print ""
-             }
-           }
-         ' >> "$OUT"
-
-        rm -f "$TMP"
-
-        cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Upload combined reject summary
       uses: actions/upload-artifact@v4
       with:
-        name: Combined-Reject-Summary
-        path: combined_rejects/
-        if-no-files-found: error
+        name: Rejects-AIO
+        path: Combined-Rejects/
+        if-no-files-found: ignore
         compression-level: 9
 
   release:
