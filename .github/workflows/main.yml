@@ -135,6 +135,11 @@ jobs:
     - build-custom
     if: ${{ always() }}
     steps:
+      
+    - name: Download Apache Arrow's util_free_space.sh
+      run: |
+        curl -Ls https://raw.githubusercontent.com/apache/arrow/main/ci/scripts/util_free_space.sh | bash
+
     - name: Download all Misc artifacts
       uses: actions/download-artifact@v4
       with:
