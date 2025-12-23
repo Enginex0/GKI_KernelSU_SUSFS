@@ -454,6 +454,13 @@ jobs:
         cp "$KERNEL_PATCHES/samsung/min_kdp/min_kdp.c" drivers/min_kdp.c
         echo "obj-y += min_kdp.o" >> drivers/Makefile
 
+    - name: Fix WiFi and Bluetooth on Xiaomi 6.6 GKI devices
+      if: ${{ ( inputs.kernel_version == '6.6' ) }}
+      working-directory: ${{ env.KERNEL_ROOT }}/common
+      run: |
+        SYMBOL_LIST=android/abi_gki_aarch64_xiaomi
+        echo "device_find_any_child" >> $SYMBOL_LIST
+
     - name: Configure Kernel Options
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
