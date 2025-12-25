@@ -473,6 +473,9 @@ jobs:
         CONFIG_IP_SET_HASH_NETIFACE=y
         CONFIG_IP_SET_LIST_SET=y
 
+        # CONFIG_LTO_CLANG is not set
+        # CONFIG_LTO_CLANG_THIN is not set
+        # CONFIG_LTO_CLANG_FULL is not set
         EOF
 
         # Remove check_defconfig
