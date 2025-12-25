@@ -221,8 +221,36 @@ jobs:
 
         # Apply core SUSFS patches
         cd "$KERNEL_ROOT/common"
-        cp "$SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch" ./
-        patch -p1 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
+        PATCH_FILE="50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
+        cp "$SUSFS4KSU/kernel_patches/$PATCH_FILE" ./
+        
+        # Backup files before patching
+        mkdir -p "$GITHUB_WORKSPACE/patch-rejects/susfs_before"
+        mkdir -p "$GITHUB_WORKSPACE/patch-rejects/susfs_after"
+        
+        # Get list of files that will be patched
+        # We filter for lines starting with '+++ b/' and strip the prefix
+        TARGET_FILES=$(grep "^+++ b/" "$PATCH_FILE" | sed 's|^+++ b/||' | sort | uniq)
+        
+        for FILE in $TARGET_FILES; do
+          if [ -f "$FILE" ]; then
+            # Replicate directory structure in backup
+            mkdir -p "$GITHUB_WORKSPACE/patch-rejects/susfs_before/$(dirname "$FILE")"
+            cp "$FILE" "$GITHUB_WORKSPACE/patch-rejects/susfs_before/$FILE"
+          fi
+        done
+        
+        # Apply patch
+        echo "Applying $PATCH_FILE..."
+        patch -p1 < "$PATCH_FILE" || true
+        
+        # Backup files after patching
+        for FILE in $TARGET_FILES; do
+          if [ -f "$FILE" ]; then
+            mkdir -p "$GITHUB_WORKSPACE/patch-rejects/susfs_after/$(dirname "$FILE")"
+            cp "$FILE" "$GITHUB_WORKSPACE/patch-rejects/susfs_after/$FILE"
+          fi
+        done
 
         case "${{ inputs.ksu_variant }}" in
           WKSU)
