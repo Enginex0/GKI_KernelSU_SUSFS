@@ -224,34 +224,7 @@ jobs:
         cd "$KERNEL_ROOT/common"
         PATCH_FILE="50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
         cp "$SUSFS4KSU/kernel_patches/$PATCH_FILE" ./
-        
-        # Backup files before patching
-        mkdir -p "$GITHUB_WORKSPACE/patch-rejects/susfs_before"
-        mkdir -p "$GITHUB_WORKSPACE/patch-rejects/susfs_after"
-        
-        # Get list of files that will be patched
-        # We filter for lines starting with '+++ b/' and strip the prefix
-        TARGET_FILES=$(grep "^+++ b/" "$PATCH_FILE" | sed 's|^+++ b/||' | sort | uniq)
-        
-        for FILE in $TARGET_FILES; do
-          if [ -f "$FILE" ]; then
-            # Replicate directory structure in backup
-            mkdir -p "$GITHUB_WORKSPACE/patch-rejects/susfs_before/$(dirname "$FILE")"
-            cp "$FILE" "$GITHUB_WORKSPACE/patch-rejects/susfs_before/$FILE"
-          fi
-        done
-        
-        # Apply patch
-        echo "Applying $PATCH_FILE..."
         patch -p1 < "$PATCH_FILE" || true
-        
-        # Backup files after patching
-        for FILE in $TARGET_FILES; do
-          if [ -f "$FILE" ]; then
-            mkdir -p "$GITHUB_WORKSPACE/patch-rejects/susfs_after/$(dirname "$FILE")"
-            cp "$FILE" "$GITHUB_WORKSPACE/patch-rejects/susfs_after/$FILE"
-          fi
-        done
 
         case "${{ inputs.ksu_variant }}" in
           WKSU)
@@ -269,8 +242,9 @@ jobs:
             cd "$KERNEL_ROOT/KernelSU-Next"
             #cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
             #patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
-            sed -i '/if (cred->euid.val == 0) {/,/return;/d' ./kernel/app_profile.c
-            grep "Already root, don't escape!" ./kernel/app_profile.c
+            echo "Applying app_profile.c patch..."
+            #sed -i '/if (cred->euid.val == 0) {/,/return;/d' ./kernel/app_profile.c
+            #grep "Already root, don't escape!" ./kernel/app_profile.c
             ;;
           KSU)
             cd "$KERNEL_ROOT/KernelSU"
@@ -321,6 +295,7 @@ jobs:
             fi
             ;;
           Next)
+            echo "Applying show_pad; patch..."
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 209 ]] ||
                [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 209 ]] ||
                [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 148 ]] ||
@@ -329,6 +304,7 @@ jobs:
               sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
             fi
 
+            echo "Applying 1_fix_base.c; patch..."
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 43 ]] ||
                [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" && $ACTUAL_SUBLEVEL -ge 145 ]] ||
                [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" && $ACTUAL_SUBLEVEL -ge 98 ]]; then
@@ -336,28 +312,33 @@ jobs:
               patch -p1 < 1_fix_base.c.patch
             fi
 
+            echo "Applying 2_fix_base.c; patch..."
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 43 ]]; then
               cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/2_fix_base.c.patch ./
-              patch -p1 < 2_fix_base.c.patch || true
+              patch -p1 < 2_fix_base.c.patch
             fi
 
+            echo "Applying fix_task_mmu.c; patch..."
             if [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" && $ACTUAL_SUBLEVEL -le 58 ]]; then
               cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_task_mmu.c.patch ./
-              patch -p1 < fix_task_mmu.c.patch || true
+              patch -p1 < fix_task_mmu.c.patch
             fi
 
+            echo "Applying Android 13 5.15 patchs..."
             # Apply additional SUSFS patches for Android 13 5.15 compatibility
             if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" ]] && [[ ${{ inputs.sub_level }} -le 41 ]]; then
               cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_fdinfo.c.patch ./
-              patch -p1 < fix_fdinfo.c.patch || true
+              patch -p1 < fix_fdinfo.c.patch
               cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_namespace.c.patch ./
-              patch -p1 < fix_namespace.c.patch || true
+              patch -p1 < fix_namespace.c.patch
               cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_open.c.patch ./
-              patch -p1 < fix_open.c.patch || true
+              patch -p1 < fix_open.c.patch
               sed -i 's/i_uid_into_mnt(i_user_ns(inode), inode)/i_uid_into_mnt(inode->i_sb->s_user_ns, inode)/g' fs/susfs.c
             fi
-            sed -i 's/if (likely(susfs_is_current_proc_umounted()) || !ksu_su_compat_enabled)/if (likely(!ksu_su_compat_enabled))/' fs/exec.c
-            grep "if (likely(!ksu_su_compat_enabled))" fs/exec.c
+
+            echo "Applying fix_exec.c; patch..."
+            #sed -i 's/if (likely(susfs_is_current_proc_umounted()) || !ksu_su_compat_enabled)/if (likely(!ksu_su_compat_enabled))/' fs/exec.c
+            #grep "if (likely(!ksu_su_compat_enabled))" ./fs/exec.c
             ;;
           KSU)
                         if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 209 ]] ||
