@@ -228,7 +228,7 @@ jobs:
             if [ -n "${{ inputs.ksu_commit }}" ]; then
               curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
             else
-              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -s 08dab4640149478d674f847cd5ebd2156e165de5
+              curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev/kernel/setup.sh" | bash -s dev-susfs
             fi
             ;;
           KSU)
@@ -304,9 +304,9 @@ jobs:
             patch -p1 < fix_kernel_compat.c.patch
             ;;
           Next)
-            cd "$KERNEL_ROOT/KernelSU-Next"
-            cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
-            patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
+            #cd "$KERNEL_ROOT/KernelSU-Next"
+            #cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
+            #patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
             ;;
           KSU)
             cd "$KERNEL_ROOT/KernelSU"
