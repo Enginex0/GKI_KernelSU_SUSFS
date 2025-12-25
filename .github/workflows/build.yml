@@ -500,7 +500,6 @@ jobs:
         cat >> "${{ env.DEFCONFIG }}" << 'EOF'
         # KernelSU Configuration
         CONFIG_KSU=y
-        CONFIG_KSU_KPROBES_HOOK=n
 
         # Mountify Support
         CONFIG_TMPFS_XATTR=y
@@ -540,7 +539,6 @@ jobs:
         CONFIG_IP_SET_LIST_SET=y
 
         CONFIG_KSU_SUSFS=y
-        CONFIG_KSU_SUSFS_SUS_SU=n
         EOF
 
         # Remove check_defconfig
@@ -723,9 +721,9 @@ jobs:
         set -ex
         #export KBUILD_BUILD_TIMESTAMP="$(date -u)"
         if [ -f "build/build.sh" ]; then
-          LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
+          BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
-          tools/bazel build --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist || exit 1
+          tools/bazel build --config=release --config=stamp //common:kernel_aarch64_dist || exit 1
         fi
 
     - name: Prepare AnyKernel3
