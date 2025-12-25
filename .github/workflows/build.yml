@@ -714,13 +714,19 @@ jobs:
         # Copy Image from normal build locations
         if [ -f "$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" ]; then
           cp "$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" "$ANYKERNEL3/Image"
+          cp "$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" "./${{ env.FILE_NAME }}-Image"
+          gzip -n -k -f -9 "./${{ env.FILE_NAME }}-Image"
+          cp "$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image.lz4" "././${{ env.FILE_NAME }}-Image.lz4"
         elif [ -f "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image" ]; then
           cp "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image" "$ANYKERNEL3/Image"
+          cp "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image" "./${{ env.FILE_NAME }}-Image"
+          gzip -n -k -f -9 "./${{ env.FILE_NAME }}-Image"
+          cp "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image.lz4" "./${{ env.FILE_NAME }}-Image.lz4"
         else
           echo "Error: Image file not found in any expected location"
           exit 1
         fi
-
+    
     - name: Copy snd-aloop module
       if: ${{ inputs.variant == 'vTomsonek' }}
       run: |
@@ -785,7 +791,6 @@ jobs:
         path: |
           ${{ env.FILE_NAME }}-*
           patch-rejects/**
-          build_summary.md
         if-no-files-found: ignore
         compression-level: 9
 
