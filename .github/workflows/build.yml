@@ -703,10 +703,10 @@ jobs:
         set -ex
         if [ -f "build/build.sh" ]; then
           export KBUILD_BUILD_TIMESTAMP="$(date -u)"
-          BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
+          LTO=none BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
           export SOURCE_DATE_EPOCH=$(date +%s)
-          tools/bazel build --config=release --config=stamp //common:kernel_aarch64_dist || exit 1
+          tools/bazel build --config=release --config=stamp --lto=none //common:kernel_aarch64_dist || exit 1
         fi
 
     - name: Prepare AnyKernel3 Zip
