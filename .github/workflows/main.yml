@@ -121,78 +121,6 @@ jobs:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
 
-  combined-reject-summary:
-    name: Combined Reject Summary
-    runs-on: ubuntu-latest
-    needs:
-    - build-a12-5-10
-    - build-a13-5-10
-    - build-a13-5-15
-    - build-a14-5-15
-    - build-a14-6-1
-    - build-a15-6-6
-    - build-a16-6-12
-    - build-custom
-    if: ${{ always() }}
-    steps:
-      
-    - name: Download Apache Arrow's util_free_space.sh
-      run: |
-        curl -Ls https://raw.githubusercontent.com/apache/arrow/main/ci/scripts/util_free_space.sh | bash
-
-    - name: Download all Misc artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: ./downloaded-rejects
-        pattern: '*-Normal-Misc'
-
-    - name: Generate combined reject summary
-      run: |
-        set -e
-        
-        ROOT="./downloaded-rejects"
-        OUTPUT_DIR="Combined-Rejects"
-        mkdir -p "$OUTPUT_DIR"
-        
-        shopt -s nullglob
-        misc_dirs=("$ROOT"/*)
-        
-        if [ ${#misc_dirs[@]} -eq 0 ]; then
-          echo "No artifacts matched '*-Misc'."
-          exit 0
-        fi
-        
-        echo "Processing ${#misc_dirs[@]} artifacts..."
-        
-        for d in "${misc_dirs[@]}"; do
-          [ -d "$d" ] || continue
-          
-          # Artifact name is the directory name
-          artifact_name=$(basename "$d")
-          
-          # Remove "-Misc" suffix for cleaner folder name
-          kernel_name="${artifact_name%-Misc}"
-          
-          target_dir="$OUTPUT_DIR/$kernel_name"
-          
-          # Copy Rejects if they exist
-          if [ -d "$d/patch-rejects" ]; then
-             mkdir -p "$target_dir"
-            # Copy contents of patch-rejects (preserving directory structure) to target_dir
-            # We want: filename-folder/path/path/file.rej
-            cp -r "$d/patch-rejects/." "$target_dir/" 2>/dev/null || true
-          fi
-          
-        done
-
-    - name: Upload combined reject summary
-      uses: actions/upload-artifact@v4
-      with:
-        name: Rejects-AIO
-        path: Combined-Rejects/
-        if-no-files-found: ignore
-        compression-level: 9
-
   release:
     runs-on: ubuntu-latest
     if: inputs.release_type != 'Actions'
@@ -208,13 +136,9 @@ jobs:
 
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_NAME: "GKI Kernels With WKSU & SUSFS v1.5.12"
+      RELEASE_NAME: "GKI Kernels With KernelSU-Next & SUSFS v2.0.0"
       RELEASE_BODY: ""
     steps:
-    - name: Download Apache Arrow's util_free_space.sh
-      run: |
-        curl -Ls https://raw.githubusercontent.com/apache/arrow/main/ci/scripts/util_free_space.sh | bash
-
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -249,14 +173,13 @@ jobs:
 
         Features:
         -> KernelSU-Next
-        -> Multi Manager Support for KernelSU-Next & MKSU!
         -> SUSFS ඞ v2.0.0
-        -> Manual Root Hooks
+        -> Inline Root Hooks
         -> Ptrace Patch Support for Older Kernels (<5.16)
         -> IPSet Support for Advanced Network Filtering
         -> Wireguard Support
         -> BBR v1 Support
-        -> Added BBG support to prevent unauthorised writes to certain partitions: https://github.com/vc-teahouse/Baseband-guard
+        -> BBG: https://github.com/vc-teahouse/Baseband-guard
 
         🔹 BBG (Baseband-guard)
         - A lightweight LSM (Linux Security Module) for Android kernel
@@ -268,7 +191,7 @@ jobs:
         Kernel Flasher:
         -> https://github.com/fatalcoder524/KernelFlasher/
 
-        Managers:
+        Manager:
         -> Next: https://github.com/KernelSU-Next/KernelSU-Next
 
         Module: 
