@@ -52,7 +52,7 @@ jobs:
       run: |
         curl -Ls https://raw.githubusercontent.com/apache/arrow/main/ci/scripts/util_free_space.sh | bash
 
-    - name: Set Environment Variables
+    - name: Setup Build Environment
       run: |
         CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
         KERNEL_ROOT="$GITHUB_WORKSPACE/$CONFIG"
@@ -64,47 +64,18 @@ jobs:
         SUSFS4KSU=$GITHUB_WORKSPACE/susfs4ksu
         KERNEL_PATCHES=$GITHUB_WORKSPACE/kernel_patches
         ANYKERNEL3=$GITHUB_WORKSPACE/AnyKernel3
-        AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool
-        MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py
-        UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py
-        BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
         REPO=$GITHUB_WORKSPACE/git-repo/repo
         EOF
 
-        echo "PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin:$PATH" >> $GITHUB_ENV
         mkdir -p "$KERNEL_ROOT"
-
-    - name: Setup Build Environment
-      run: |
-        AOSP_MIRROR=https://android.googlesource.com
-        BRANCH=main-kernel-2025
-        git clone $AOSP_MIRROR/kernel/prebuilts/build-tools -b $BRANCH --depth 1 kernel-build-tools &
-        git clone $AOSP_MIRROR/platform/system/tools/mkbootimg -b $BRANCH --depth 1 mkbootimg &
-        wait
-
-        echo "AVBTOOL=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin/avbtool" >> $GITHUB_ENV
-        echo "MKBOOTIMG=$GITHUB_WORKSPACE/mkbootimg/mkbootimg.py" >> $GITHUB_ENV
-        echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
-        echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
-        echo "PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin:$PATH" >> $GITHUB_ENV
-
         mkdir -p ./git-repo
         curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo
         chmod a+rx ./git-repo/repo
         echo "REPO=$GITHUB_WORKSPACE/./git-repo/repo" >> $GITHUB_ENV
 
-    - name: Set boot sign key
-      env:
-        BOOT_SIGN_KEY: ${{ secrets.BOOT_SIGN_KEY }}
-      run: |
-        if [ ! -z "$BOOT_SIGN_KEY" ]; then
-          echo "$BOOT_SIGN_KEY" > ./kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem
-        fi
-
     - name: Clone AnyKernel3 and Other Dependencies
       run: |
         ANYKERNEL_BRANCH="gki-2.0"
-        SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
 
         # Random delay to avoid rate limiting
         DELAY=$((1 + RANDOM % 10))
@@ -114,47 +85,13 @@ jobs:
         git clone https://github.com/WildKernels/AnyKernel3.git -b "$ANYKERNEL_BRANCH"
         rm -rf AnyKernel3/.git
         git clone https://github.com/WildKernels/kernel_patches.git
-        git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
-
-        cd susfs4ksu
-        TARGET="${{ inputs.android_version }}-${{ inputs.kernel_version }}"
-        COMMIT=""
-        case "${{ inputs.ksu_variant }}" in
-          WKSU)
-            case "$TARGET" in 
-              android12-5.10) COMMIT="8a76ba240d1f7315352b49d97d854a4b166e5b47" ;;
-              android13-5.10) COMMIT="e5c9eabfc6dcfc677d11f46ce1d5ff786de60a92" ;;
-              android13-5.15) COMMIT="babf6be195576f09aae79650d47abf6a76e8a21b" ;;
-              android14-5.15) COMMIT="19f339e804ba9aebd9c6d735b965e2b9396c73ae" ;;
-              android14-6.1) COMMIT="a162e2469d0b472545e5e46457eee171c0975fb0" ;;
-              android15-6.6) COMMIT="f450ec00bf592d080f59b01ff6f9242456c9a427" ;;
-            esac
-            git checkout "$COMMIT"
-            ;;
-          Next)
-            case "$TARGET" in 
-              android12-5.10) COMMIT="ba9596176b0c23c433220fd3373bfbcda5e83147" ;;
-              android13-5.10) COMMIT="6796d4799aa943ef7cdeccda95e14302b4cd734c" ;;
-              android13-5.15) COMMIT="e7424bd61af892ab698ad9e93557e15dc7965590" ;;
-              android14-5.15) COMMIT="2932a2deb506fdd39621ab43b7daa16c2798a12b" ;;
-              android14-6.1) COMMIT="223c11b421a649e4180719eed00fc3122bcdb241" ;;
-              android15-6.6) COMMIT="c2b0526cf218b72f7cafe642ff0eac5d83efba80" ;;
-              android16-6.12) COMMIT="57474b0393ec3b2f7f6966e27ab671e3a5a79107" ;;
-            esac
-            git checkout "$COMMIT"
-            ;;
-          KSU)
-            echo "Not Needed"
-            ;;
-        esac
 
     - name: Initialize and Sync Kernel Source
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         FORMATTED_BRANCH="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.os_patch_level }}"
 
-        $REPO init -u https://android.googlesource.com/kernel/manifest \
-          -b common-${FORMATTED_BRANCH} --repo-rev=v2.16
+        $REPO init -u https://android.googlesource.com/kernel/manifest -b common-${FORMATTED_BRANCH} --repo-rev=v2.16
 
         REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH})
         DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
@@ -213,7 +150,7 @@ jobs:
       run: |
         patch -p1 -F 3 < "$KERNEL_PATCHES/gki_ptrace.patch"
 
-    - name: Add KernelSU
+    - name: Add KernelSU Variant
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         case "${{ inputs.ksu_variant }}" in
@@ -240,47 +177,43 @@ jobs:
             ;;
         esac
 
-    - name: Getting KernelSU Version
-      working-directory: ${{ env.KERNEL_ROOT }}
+    - name: Clone & Apply SUSFS Patches for KernelSU Variants
       run: |
-        
-        case "${{ inputs.ksu_variant }}" in
-          WKSU)
-            # OLD scheme
-            BASE_VERSION=10200
-            COMMIT_COUNT=$(git -C "$KERNEL_ROOT/Wild_KSU" rev-list --count HEAD)
-            KSU_VERSION=$(expr $BASE_VERSION + $COMMIT_COUNT)
-            ;;
-          Next)
-            # NEW scheme
-            BASE_VERSION=30000
-            COMMIT_COUNT=$(git -C "$KERNEL_ROOT/KernelSU-Next" rev-list --count HEAD)
-            KSU_VERSION=$(expr $BASE_VERSION + $COMMIT_COUNT)
-            ;;
-          KSU)
-            # NEW scheme
-            BASE_VERSION=30000
-            COMMIT_COUNT=$(git -C "$KERNEL_ROOT/KernelSU" rev-list --count HEAD)
-            KSU_VERSION=$(expr $BASE_VERSION + $COMMIT_COUNT)
-            ;;
-        esac
-        echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-
-    - name: Apply SUSFS Patches for KernelSU Variants
-      working-directory: ${{ env.KERNEL_ROOT }}
-      run: |
-        
-        # Apply compatibility fixes
+        SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
+        git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
+        cd susfs4ksu
+        TARGET="${{ inputs.android_version }}-${{ inputs.kernel_version }}"
+        COMMIT=""
         case "${{ inputs.ksu_variant }}" in
           WKSU)
             SUSFS_VERSION="1.5.12"
-          ;;
+            case "$TARGET" in 
+              android12-5.10) COMMIT="8a76ba240d1f7315352b49d97d854a4b166e5b47" ;;
+              android13-5.10) COMMIT="e5c9eabfc6dcfc677d11f46ce1d5ff786de60a92" ;;
+              android13-5.15) COMMIT="babf6be195576f09aae79650d47abf6a76e8a21b" ;;
+              android14-5.15) COMMIT="19f339e804ba9aebd9c6d735b965e2b9396c73ae" ;;
+              android14-6.1) COMMIT="a162e2469d0b472545e5e46457eee171c0975fb0" ;;
+              android15-6.6) COMMIT="f450ec00bf592d080f59b01ff6f9242456c9a427" ;;
+            esac
+            git checkout "$COMMIT"
+            ;;
           Next)
             SUSFS_VERSION="2.0.0"
-          ;;
+            case "$TARGET" in 
+              android12-5.10) COMMIT="ba9596176b0c23c433220fd3373bfbcda5e83147" ;;
+              android13-5.10) COMMIT="6796d4799aa943ef7cdeccda95e14302b4cd734c" ;;
+              android13-5.15) COMMIT="e7424bd61af892ab698ad9e93557e15dc7965590" ;;
+              android14-5.15) COMMIT="2932a2deb506fdd39621ab43b7daa16c2798a12b" ;;
+              android14-6.1) COMMIT="223c11b421a649e4180719eed00fc3122bcdb241" ;;
+              android15-6.6) COMMIT="c2b0526cf218b72f7cafe642ff0eac5d83efba80" ;;
+              android16-6.12) COMMIT="57474b0393ec3b2f7f6966e27ab671e3a5a79107" ;;
+            esac
+            git checkout "$COMMIT"
+            ;;
           KSU)
             SUSFS_VERSION="2.0.0"
-          ;;
+            echo "Not Needed"
+            ;;
         esac
 
         cp "$SUSFS4KSU/kernel_patches/fs/"* "$KERNEL_ROOT/common/fs/"
@@ -716,18 +649,19 @@ jobs:
           perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel
         fi
 
-    - name: Build
+    - name: Build Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         set -ex
-        #export KBUILD_BUILD_TIMESTAMP="$(date -u)"
         if [ -f "build/build.sh" ]; then
+          export KBUILD_BUILD_TIMESTAMP="$(date -u)"
           BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
+          export SOURCE_DATE_EPOCH=$(date +%s)
           tools/bazel build --config=release --config=stamp //common:kernel_aarch64_dist || exit 1
         fi
 
-    - name: Prepare AnyKernel3
+    - name: Prepare AnyKernel3 Zip
       run: |
         # Copy Image from normal build locations
         if [ -f "$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" ]; then
@@ -756,59 +690,6 @@ jobs:
 
         cp "$SRC_DIR/snd-aloop.ko" "$ANYKERNEL3/modules/data/adb/lkm/"
         cp "$SRC_DIR/g_audio.ko" "$ANYKERNEL3/modules/data/adb/lkm/"
-
-    - name: Create Bootimgs Folder and Copy Images
-      run: |
-        mkdir bootimgs
-
-        # Determine source directory based on Android version
-        if [[ "${{ inputs.android_version }}" == "android12" || "${{ inputs.android_version }}" == "android13" ]]; then
-          SRC_DIR="$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
-        else
-          SRC_DIR="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64"
-        fi
-
-        cp "$SRC_DIR/Image" ./bootimgs/
-        cp "$SRC_DIR/Image.lz4" ./bootimgs/
-        cp "$SRC_DIR/Image" "./${{ env.FILE_NAME }}-Image"
-        cp "$SRC_DIR/Image.lz4" "./${{ env.FILE_NAME }}-Image.lz4"
-
-        # Create gzip of the Image files
-        gzip -n -k -f -9 "./${{ env.FILE_NAME }}-Image"
-        gzip -n -k -f -9 ./bootimgs/Image
-
-    - name: Build Boot Images
-      working-directory: bootimgs
-      run: |
-        RAMDISK_ARGS=""
-
-        # Android 12 needs ramdisk from GKI certified boot
-        if [[ "${{ inputs.android_version }}" == "android12" ]]; then
-          GKI_URL="https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-${{ inputs.os_patch_level }}_r1.zip"
-          FALLBACK_URL="https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-2023-01_r1.zip"
-          
-          if curl -sL -w "%{http_code}" "$GKI_URL" -o /dev/null | grep -q 200; then
-            curl -Lo gki-kernel.zip "$GKI_URL"
-          else
-            curl -Lo gki-kernel.zip "$FALLBACK_URL"
-          fi
-          
-          unzip -q gki-kernel.zip && rm gki-kernel.zip
-          $UNPACK_BOOTIMG --boot_img="$(pwd)/boot-5.10.img"
-          RAMDISK_ARGS="--ramdisk out/ramdisk --os_version 12.0.0 --os_patch_level ${{ inputs.os_patch_level }}"
-        fi
-
-        # Build all three boot image variants
-        for suffix in "" ".gz" ".lz4"; do
-          kernel="Image${suffix}"
-          output="boot${suffix//./-}.img"
-          [ -z "$suffix" ] && output="boot.img"
-          
-          $MKBOOTIMG --header_version 4 --kernel "$kernel" --output "$output" $RAMDISK_ARGS
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) \
-            --image "$output" --algorithm SHA256_RSA2048 --key "$BOOT_SIGN_KEY_PATH"
-          cp "./$output" "$GITHUB_WORKSPACE/${{ env.FILE_NAME }}-$output"
-        done
 
     - name: Scan and collect patch rejects
       if: ${{ always() }}
@@ -840,82 +721,6 @@ jobs:
           done
         fi
 
-    - name: Generate Build Summary
-      if: ${{ always() }}
-      run: |
-        set -e
-
-        REJECTS_DIR="$GITHUB_WORKSPACE/patch-rejects"
-        OUT="build_summary.md"
-
-        {
-          echo "# Patch Reject Summary"
-          echo "## ${{ env.FILE_NAME }}"
-          echo ""
-          echo "- Rejects directory: \`$REJECTS_DIR\`"
-          echo "- Kernel root: \`$KERNEL_ROOT\`"
-          echo ""
-        } > "$OUT"
-
-        if [ ! -s "$REJECTS_DIR/index.txt" ]; then
-          echo "No patch rejects found." >> "$OUT"
-          # cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
-          exit 0
-        fi
-
-        sort -u "$REJECTS_DIR/index.txt" > "$REJECTS_DIR/index.sorted.txt"
-
-        echo "## Reject Files" >> "$OUT"
-        while IFS= read -r rel; do
-          [ -n "$rel" ] && echo "- \`$rel\`" >> "$OUT"
-        done < "$REJECTS_DIR/index.sorted.txt"
-
-        echo "" >> "$OUT"
-        echo "## Grouped By Directory (count)" >> "$OUT"
-        awk -F/ 'NF{dir=$0; sub(/\/[^[\/]]*$/, "", dir); if(dir==$0) dir="."; c[dir]++} END{for (d in c) printf "%d\t%s\n", c[d], d}' "$REJECTS_DIR/index.sorted.txt" \
-          | sort -nr \
-          | while IFS=$'\t' read -r cnt dir; do
-              [ -n "$dir" ] && echo "- **$cnt** \`$dir\`" >> "$OUT"
-            done
-        echo "" >> "$OUT"
-        echo "## Grouped By Reject Content (sha256)" >> "$OUT"
-
-        TMP="$(mktemp)"
-        while IFS= read -r rel; do
-          [ -n "$rel" ] || continue
-          f="$REJECTS_DIR/$rel"
-          if [ -f "$f" ]; then
-            sha=$(sha256sum "$f" | awk '{print $1}')
-            printf '%s\t%s\n' "$sha" "$rel" >> "$TMP"
-          else
-            printf '%s\t%s\n' "MISSING" "$rel" >> "$TMP"
-          fi
-        done < "$REJECTS_DIR/index.sorted.txt"
-
-        sort "$TMP" | awk -F'\t' '
-          $1=="MISSING" { missing[++mc]=$2; next }
-          {
-            sha=$1; rel=$2
-            if (sha!=prev) {
-              if (prev!="") print ""
-              print "### " sha
-            }
-            print "- `" rel "`"
-            prev=sha
-          }
-          END {
-            if (mc>0) {
-              print ""
-              print "### Missing files"
-              for (i=1; i<=mc; i++) print "- `" missing[i] "`"
-            }
-          }
-        ' >> "$OUT"
-
-        rm -f "$TMP"
-
-        # cat "$OUT" >> "$GITHUB_STEP_SUMMARY"
-
     - name: Upload Artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -931,7 +736,6 @@ jobs:
         name: ${{ env.FILE_NAME }}-Misc
         path: |
           ${{ env.FILE_NAME }}-*
-          ${{ env.KERNEL_ROOT }}/KernelSU-Next/**
           patch-rejects/**
           build_summary.md
         if-no-files-found: ignore
