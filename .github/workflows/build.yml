@@ -269,6 +269,8 @@ jobs:
             #cd "$KERNEL_ROOT/KernelSU-Next"
             #cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
             #patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
+            sed -i '/if (cred->euid.val == 0) {/,/return;/d' .kernel/app_profile.c
+            grep "Already root, don't escape!" ./kernel/app_profile.c
             ;;
           KSU)
             cd "$KERNEL_ROOT/KernelSU"
