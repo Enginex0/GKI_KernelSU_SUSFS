@@ -193,6 +193,27 @@ jobs:
                 cd KernelSU-Next
                 git fetch https://github.com/pershoot/KernelSU-Next 1613aec41bd4385358284f546ba12bbcd00b3b03
                 git cherry-pick 1613aec41bd4385358284f546ba12bbcd00b3b03
+                
+                # Remove CONFIG_TRACEPOINTS guards
+                sed -i '/#ifdef CONFIG_TRACEPOINTS/d' kernel/ksud.c
+                sed -i '/#endif \/\/ CONFIG_TRACEPOINTS/d' kernel/ksud.c
+                
+                # Verify removal
+                if grep "#ifdef CONFIG_TRACEPOINTS" kernel/ksud.c; then
+                    echo "Error: CONFIG_TRACEPOINTS guards still found in kernel/ksud.c!"
+                    exit 1
+                fi
+                
+                # Replace pr_debug with pr_info
+                find . -type f -exec sed -i 's/pr_debug/pr_info/g' {} +
+                
+                # Verify replacement
+                if grep -r "pr_debug" . ; then
+                    echo "Error: pr_debug still found!"
+                    exit 1
+                fi
+                
+                cd ..
               fi
             fi
             ;;
@@ -270,10 +291,6 @@ jobs:
             cd "$KERNEL_ROOT/KernelSU-Next"
             #cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
             #patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
-            echo "Applying app_profile.c patch..."
-            #sed -i '/if (cred->euid.val == 0) {/,/return;/d' ./kernel/app_profile.c
-            #grep "Already root, don't escape!" ./kernel/app_profile.c
-            find . -type f -exec sed -i 's/pr_debug/pr_info/g' {} +
             ;;
           KSU)
             cd "$KERNEL_ROOT/KernelSU"
