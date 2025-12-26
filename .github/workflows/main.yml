@@ -25,7 +25,7 @@ on:
       susfs_enabled:
         description: "Enable SUSFS"
         type: boolean
-        default: true
+        default: false
 
       # Build Selection
       build_a12_5_10:
