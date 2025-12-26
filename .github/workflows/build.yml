@@ -245,6 +245,7 @@ jobs:
             echo "Applying app_profile.c patch..."
             #sed -i '/if (cred->euid.val == 0) {/,/return;/d' ./kernel/app_profile.c
             #grep "Already root, don't escape!" ./kernel/app_profile.c
+            find . -type f -exec sed -i 's/pr_info/pr_debug/g' {} +
             ;;
           KSU)
             cd "$KERNEL_ROOT/KernelSU"
