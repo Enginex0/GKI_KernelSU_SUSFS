@@ -191,6 +191,8 @@ jobs:
               else
                 curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s dev
                 cd KernelSU-Next
+                git config --global user.name "TheWildJames"
+                git config --global user.email "bins4us@hotmail.com"
                 git fetch https://github.com/pershoot/KernelSU-Next 1613aec41bd4385358284f546ba12bbcd00b3b03
                 git cherry-pick 1613aec41bd4385358284f546ba12bbcd00b3b03
                 
