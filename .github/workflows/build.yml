@@ -6,6 +6,10 @@ permissions:
 on:
   workflow_call:
     inputs:
+      susfs_enabled:
+        required: false
+        type: boolean
+        default: true
       android_version:
         required: true
         type: string
@@ -164,9 +168,13 @@ jobs:
             ;;
           Next)
             if [ -n "${{ inputs.ksu_commit }}" ]; then
-              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
+              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
             else
-              curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev/kernel/setup.sh" | bash -s dev-susfs
+              if [ "${{ inputs.susfs_enabled }}" == "true" ]; then
+                curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev/kernel/setup.sh" | bash -s dev-susfs
+              else
+                curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s legacy
+              fi
             fi
             ;;
           KSU)
@@ -179,6 +187,7 @@ jobs:
         esac
 
     - name: Clone & Apply SUSFS Patches for KernelSU Variants
+      if: inputs.susfs_enabled == true
       run: |
         SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
         git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
@@ -408,6 +417,7 @@ jobs:
         fi
 
     - name: Add BBG
+      if: false
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         curl -LSs https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
@@ -465,8 +475,9 @@ jobs:
         cat >> "${{ env.DEFCONFIG }}" << 'EOF'
         # KernelSU Configuration
         CONFIG_KSU=y
-        CONFIG_KSU_SUSFS=y
         CONFIG_TRACEPOINTS=y
+
+        CONFIG_KSU_SUSFS=y
 
         # Mountify Support
         CONFIG_TMPFS_XATTR=y
