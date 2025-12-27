@@ -718,7 +718,7 @@ jobs:
           LTO=none BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
           export SOURCE_DATE_EPOCH=$(date +%s)
-          tools/bazel build --config=release --lto=none //common:kernel_aarch64_dist || exit 1
+          tools/bazel build --config=stamp --config=fast --lto=none //common:kernel_aarch64_dist || exit 1
         fi
 
     - name: Prepare AnyKernel3 Zip
