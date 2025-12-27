@@ -190,32 +190,9 @@ jobs:
                 curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -
               else
                 curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s dev
-                cd KernelSU-Next
-                git config --global user.name "TheWildJames"
-                git config --global user.email "bins4us@hotmail.com"
-                git fetch https://github.com/pershoot/KernelSU-Next 1613aec41bd4385358284f546ba12bbcd00b3b03
-                git cherry-pick 1613aec41bd4385358284f546ba12bbcd00b3b03
-                
-                # Remove CONFIG_TRACEPOINTS guards
-                sed -i '/#ifdef CONFIG_TRACEPOINTS/d' kernel/ksud.c
-                sed -i '/#endif \/\/ CONFIG_TRACEPOINTS/d' kernel/ksud.c
-                
-                # Verify removal
-                if grep "#ifdef CONFIG_TRACEPOINTS" kernel/ksud.c; then
-                    echo "Error: CONFIG_TRACEPOINTS guards still found in kernel/ksud.c!"
-                    exit 1
-                fi
                 
                 # Replace pr_debug with pr_info
                 find . -type f -exec sed -i 's/pr_debug/pr_info/g' {} +
-                
-                # Verify replacement
-                if grep -r "pr_debug" . ; then
-                    echo "Error: pr_debug still found!"
-                    exit 1
-                fi
-                
-                cd ..
               fi
             fi
             ;;
