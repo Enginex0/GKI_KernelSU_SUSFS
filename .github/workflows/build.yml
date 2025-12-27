@@ -703,6 +703,7 @@ jobs:
         if [ -f "build/build.sh" ]; then
           #Remove Dirty Flag
           #sed -i 's/-dirty//' ./common/scripts/setlocalversion
+          echo "skipped"
         else
           #Remove Dirty Flag
           #sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
