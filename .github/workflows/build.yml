@@ -362,13 +362,9 @@ jobs:
               patch -p1 < fix_open.c.patch
               sed -i 's/i_uid_into_mnt(i_user_ns(inode), inode)/i_uid_into_mnt(inode->i_sb->s_user_ns, inode)/g' fs/susfs.c
             fi
-
-            echo "Applying fix_exec.c; patch..."
-            #sed -i 's/if (likely(susfs_is_current_proc_umounted()) || !ksu_su_compat_enabled)/if (likely(!ksu_su_compat_enabled))/' fs/exec.c
-            #grep "if (likely(!ksu_su_compat_enabled))" ./fs/exec.c
             ;;
           KSU)
-                        if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 209 ]] ||
+            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 209 ]] ||
                [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 209 ]] ||
                [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 148 ]] ||
                [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "5.15" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 148 ]] ||
@@ -645,7 +641,7 @@ jobs:
         fi
 
     - name: Append ashmem exports if missing
-      if: ${{ inputs.android_version == 'android16' && inputs.kernel_version == '6.12' }} && false
+      if: ${{ inputs.android_version == 'android16' && inputs.kernel_version == '6.12' }}
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         FILE=common/drivers/staging/android/ashmem.c
@@ -707,6 +703,7 @@ jobs:
         else
           #Remove Dirty Flag
           sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
+          sed -i 's/-dirty//' ./common/scripts/setlocalversion
           #Remove Abi Exports and Error
           rm -rf ./common/android/abi_gki_protected_exports_*
           perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel
