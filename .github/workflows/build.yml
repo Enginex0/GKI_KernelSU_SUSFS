@@ -203,6 +203,9 @@ jobs:
               curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
             fi
             ;;
+          RKSU)
+            curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -s main
+            ;;
         esac
 
     - name: Clone & Apply SUSFS Patches for KernelSU Variants
