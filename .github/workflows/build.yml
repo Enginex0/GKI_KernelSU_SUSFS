@@ -415,7 +415,6 @@ jobs:
         patch -p1 -F 3 < scope_min_manual_hooks_v1.4.patch
 
     - name: Apply Performance Patches
-      if: false
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
         MIN_VERSION="5.16"
@@ -721,7 +720,7 @@ jobs:
           LTO=none BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
           export SOURCE_DATE_EPOCH=$(date +%s)
-          tools/bazel build --config=release --lto=none //common:kernel_aarch64_dist || exit 1
+          tools/bazel build --config=stamp --config=fast --lto=none //common:kernel_aarch64_dist || exit 1
         fi
 
     - name: Prepare AnyKernel3 Zip
