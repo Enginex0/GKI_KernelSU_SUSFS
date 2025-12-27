@@ -435,6 +435,7 @@ jobs:
         fi
 
     - name: Add BBG
+      if: false
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         curl -LSs https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
