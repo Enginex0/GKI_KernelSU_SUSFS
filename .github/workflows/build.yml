@@ -45,6 +45,7 @@ jobs:
             fromJSON(
               inputs.variant == 'vTomsonek' && '["vTomsonek"]' ||
               inputs.variant == 'TheWildJames' && '["TheWildJames"]' ||
+              inputs.variant == 'TheWildJamesTest' && '["TheWildJamesTest"]' ||
               inputs.variant == 'MarionKernel' && '["MarionKernel"]' ||
               inputs.variant == 'Hakan' && '["Hakan"]' ||
               '["Normal","Bypass"]'
@@ -701,26 +702,35 @@ jobs:
         fi
         if [ -f "build/build.sh" ]; then
           #Remove Dirty Flag
-          sed -i 's/-dirty//' ./common/scripts/setlocalversion
+          #sed -i 's/-dirty//' ./common/scripts/setlocalversion
         else
           #Remove Dirty Flag
-          sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
-          sed -i '/read dummy; then/,/fi/d' ./common/scripts/setlocalversion
+          #sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
+
           #Remove Abi Exports and Error
           rm -rf ./common/android/abi_gki_protected_exports_*
           perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel
         fi
+
+        git config --global user.name "TheWildJames"
+        git config --global user.email "bins4us@hotmail.com"
+
+        git commit -m "Wild: Clean Dirty Flag"
 
     - name: Build Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         set -ex
         if [ -f "build/build.sh" ]; then
-          export KBUILD_BUILD_TIMESTAMP="$(date -u)"
+          #export KBUILD_BUILD_TIMESTAMP="$(date -u)"
           LTO=none BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
-          export SOURCE_DATE_EPOCH=$(date +%s)
-          tools/bazel build --config=stamp --config=fast --lto=none //common:kernel_aarch64_dist || exit 1
+          #export SOURCE_DATE_EPOCH=$(date +%s)
+          if [ "${{ inputs.variant }}" = "TheWildJamesTest" ]; then
+            tools/bazel build --config=release --lto=none //common:kernel_aarch64_dist || exit 1
+          else
+            tools/bazel build --config=stamp --config=fast --lto=none //common:kernel_aarch64_dist || exit 1
+          fi
         fi
 
     - name: Prepare AnyKernel3 Zip
