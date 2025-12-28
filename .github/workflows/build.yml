@@ -689,22 +689,17 @@ jobs:
           cat ./common/scripts/setlocalversion
           #Remove Dirty Flag
           sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
-          sed -i 's/-dirty//g' ./common/scripts/setlocalversion
+          sed -i 's/-dirty//' ./common/scripts/setlocalversion
           #Remove Abi Exports and Error
           rm -rf ./common/android/abi_gki_protected_exports_*
           perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel
-
-          if grep -q -- '-dirty' ./common/scripts/setlocalversion; then
-            echo "Error: -dirty detected in setlocalversion"
-            exit 1
-          fi
-          cat ./common/scripts/setlocalversion
         fi
 
-        #git config --global user.name "TheWildJames"
-        #git config --global user.email "bins4us@hotmail.com"
+        cd $KERNEL_ROOT/common
+        git config --global user.name "TheWildJames"
+        git config --global user.email "bins4us@hotmail.com"
 
-        #git commit -m "Wild: Clean Dirty Flag"
+        git commit -m "Wild: Clean Dirty Flag"
 
     - name: Build Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
