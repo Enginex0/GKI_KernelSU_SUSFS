@@ -686,7 +686,6 @@ jobs:
           #Remove Dirty Flag
           sed -i 's/-dirty//' ./common/scripts/setlocalversion
         else
-          cat ./common/scripts/setlocalversion
           #Remove Dirty Flag
           sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
           sed -i 's/-dirty//' ./common/scripts/setlocalversion
@@ -698,7 +697,7 @@ jobs:
         cd $KERNEL_ROOT/common
         git config --global user.name "TheWildJames"
         git config --global user.email "bins4us@hotmail.com"
-
+        git add .
         git commit -m "Wild: Clean Dirty Flag"
 
     - name: Build Kernel
