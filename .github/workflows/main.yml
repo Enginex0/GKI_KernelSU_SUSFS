@@ -25,31 +25,31 @@ on:
       build_a12_5_10:
         description: "Android 12 - 5.10"
         type: boolean
-        default: true
+        default: false
       build_a13_5_10:
         description: "Android 13 - 5.10"
         type: boolean
-        default: true
+        default: false
       build_a13_5_15:
         description: "Android 13 - 5.15"
         type: boolean
-        default: true
+        default: false
       build_a14_5_15:
         description: "Android 14 - 5.15"
         type: boolean
-        default: true
+        default: false
       build_a14_6_1:
         description: "Android 14 - 6.1"
         type: boolean
-        default: true
+        default: false
       build_a15_6_6:
         description: "Android 15 - 6.6"
         type: boolean
-        default: true
+        default: false
       build_a16_6_12:
         description: "Android 16 - 6.12"
         type: boolean
-        default: true
+        default: false
       build_custom:
         description: "Custom Builds"
         type: boolean
@@ -63,7 +63,6 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
-      susfs_enabled: ${{ inputs.susfs_enabled }}
 
   build-a13-5-10:
     if: inputs.build_a13_5_10
@@ -72,7 +71,6 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
-      susfs_enabled: ${{ inputs.susfs_enabled }}
 
   build-a13-5-15:
     if: inputs.build_a13_5_15
@@ -81,7 +79,6 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
-      susfs_enabled: ${{ inputs.susfs_enabled }}
 
   build-a14-5-15:
     if: inputs.build_a14_5_15
@@ -90,7 +87,6 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
-      susfs_enabled: ${{ inputs.susfs_enabled }}
 
   build-a14-6-1:
     if: inputs.build_a14_6_1
@@ -99,7 +95,6 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
-      susfs_enabled: ${{ inputs.susfs_enabled }}
 
   build-a15-6-6:
     if: inputs.build_a15_6_6
@@ -108,7 +103,6 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
-      susfs_enabled: ${{ inputs.susfs_enabled }}
 
   build-a16-6-12:
     if: inputs.build_a16_6_12
@@ -117,7 +111,6 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
-      susfs_enabled: ${{ inputs.susfs_enabled }}
 
   build-custom:
     if: inputs.build_custom
@@ -126,7 +119,6 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
-      susfs_enabled: ${{ inputs.susfs_enabled }}
 
   release:
     runs-on: ubuntu-latest
