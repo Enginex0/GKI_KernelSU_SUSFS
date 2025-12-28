@@ -255,6 +255,8 @@ jobs:
             cd "$KERNEL_ROOT/KernelSU-Next"
             #cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
             #patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
+
+            cd "$KERNEL_ROOT/common"
             ;;
           KSU)
             cd "$KERNEL_ROOT/KernelSU"
@@ -263,92 +265,7 @@ jobs:
             ;;
         esac
 
-        cd "$KERNEL_ROOT/common"
-        # Post-SUSFS sed safeguards for task_mmu.c 'goto show_pad' handling
         case "${{ inputs.ksu_variant }}" in
-          WKSU)
-            echo "Applying show_pad; patch..."
-            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 209 ]] ||
-               [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 209 ]] ||
-               [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 148 ]] ||
-               [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "5.15" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 148 ]] ||
-               [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 75 ]]; then
-              sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
-            fi
-
-            echo "Applying 1_fix_base.c; patch..."
-            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 43 ]] ||
-               [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" && $ACTUAL_SUBLEVEL -ge 145 ]] ||
-               [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" && $ACTUAL_SUBLEVEL -ge 98 ]]; then
-              cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/1_fix_base.c.patch ./
-              patch -p1 < 1_fix_base.c.patch
-            fi
-
-            echo "Applying 2_fix_base.c; patch..."
-            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 43 ]]; then
-              cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/2_fix_base.c.patch ./
-              patch -p1 < 2_fix_base.c.patch
-            fi
-
-            echo "Applying fix_task_mmu.c; patch..."
-            if [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" && $ACTUAL_SUBLEVEL -le 58 ]]; then
-              cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_task_mmu.c.patch ./
-              patch -p1 < fix_task_mmu.c.patch
-            fi
-
-            echo "Applying Android 13 5.15 patchs..."
-            # Apply additional SUSFS patches for Android 13 5.15 compatibility
-            if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" ]] && [[ ${{ inputs.sub_level }} -le 41 ]]; then
-              cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_fdinfo.c.patch ./
-              patch -p1 < fix_fdinfo.c.patch
-              cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_namespace.c.patch ./
-              patch -p1 < fix_namespace.c.patch
-              cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_open.c.patch ./
-              patch -p1 < fix_open.c.patch
-              sed -i 's/i_uid_into_mnt(i_user_ns(inode), inode)/i_uid_into_mnt(inode->i_sb->s_user_ns, inode)/g' fs/susfs.c
-            fi
-            ;;
-          Next)
-            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 209 ]] ||
-               [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 209 ]] ||
-               [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 148 ]] ||
-               [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "5.15" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 148 ]] ||
-               [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 75 ]]; then
-              echo "Applying show_pad; patch..."
-              sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
-            fi
-
-            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 43 ]] ||
-               [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" && $ACTUAL_SUBLEVEL -ge 145 ]] ||
-               [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" && $ACTUAL_SUBLEVEL -ge 98 ]]; then
-              echo "Applying 1_fix_base.c; patch..."
-              cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/1_fix_base.c.patch ./
-              patch -p1 < 1_fix_base.c.patch
-            fi
-
-            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 43 ]]; then
-              echo "Applying 2_fix_base.c; patch..."
-              cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/2_fix_base.c.patch ./
-              patch -p1 < 2_fix_base.c.patch
-            fi
-
-            if [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" && $ACTUAL_SUBLEVEL -le 58 ]]; then
-              echo "Applying fix_task_mmu.c; patch..."
-              cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_task_mmu.c.patch ./
-              patch -p1 < fix_task_mmu.c.patch
-            fi
-
-            if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" ]] && [[ ${{ inputs.sub_level }} -le 41 ]]; then
-              echo "Applying Android 13 5.15 patchs..."
-              cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_fdinfo.c.patch ./
-              patch -p1 < fix_fdinfo.c.patch
-              cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_namespace.c.patch ./
-              patch -p1 < fix_namespace.c.patch
-              cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_open.c.patch ./
-              patch -p1 < fix_open.c.patch
-              sed -i 's/i_uid_into_mnt(i_user_ns(inode), inode)/i_uid_into_mnt(inode->i_sb->s_user_ns, inode)/g' fs/susfs.c
-            fi
-            ;;
           KSU)
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 209 ]] ||
                [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 209 ]] ||
@@ -416,7 +333,7 @@ jobs:
         fi
 
     - name: Add BBG
-      if: false
+      if: true
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         curl -LSs https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
@@ -701,7 +618,7 @@ jobs:
       run: |
         set -ex
         if [ -f "build/build.sh" ]; then
-          LTO=none BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
+          LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
           tools/bazel build --config=fast --lto=none //common:kernel_aarch64_dist || exit 1
         fi
