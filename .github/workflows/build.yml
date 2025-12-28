@@ -6,10 +6,6 @@ permissions:
 on:
   workflow_call:
     inputs:
-      susfs_enabled:
-        required: false
-        type: boolean
-        default: true
       android_version:
         required: true
         type: string
@@ -166,7 +162,7 @@ jobs:
         fi
 
     - name: Apply ptrace patch for older kernels
-      if: fromJSON(inputs.kernel_version) < 5.16
+      if: fromJSON(inputs.kernel_version) < 5.16 && false
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
         patch -p1 -F 3 < "$KERNEL_PATCHES/gki_ptrace.patch"
@@ -267,8 +263,8 @@ jobs:
             ;;
           Next)
             cd "$KERNEL_ROOT/KernelSU-Next"
-            cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
-            patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
+            #cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
+            #patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
             ;;
           KSU)
             cd "$KERNEL_ROOT/KernelSU"
@@ -411,6 +407,7 @@ jobs:
         patch -p1 -F 3 < scope_min_manual_hooks_v1.4.patch
 
     - name: Apply Performance Patches
+      if: false
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
         MIN_VERSION="5.16"
@@ -702,7 +699,7 @@ jobs:
         else
           #Remove Dirty Flag
           sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
-
+          sed -i 's/-dirty//g' ./common/scripts/setlocalversion
           #Remove Abi Exports and Error
           rm -rf ./common/android/abi_gki_protected_exports_*
           perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel
@@ -722,11 +719,7 @@ jobs:
           LTO=none BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
           #export SOURCE_DATE_EPOCH=$(date +%s)
-          if [ "${{ inputs.variant }}" = "TheWildJamesTest" ]; then
-            tools/bazel build --config=release --lto=none //common:kernel_aarch64_dist || exit 1
-          else
-            tools/bazel build --config=stamp --config=fast --lto=none //common:kernel_aarch64_dist || exit 1
-          fi
+          tools/bazel build --config=stamp --config=fast --lto=none //common:kernel_aarch64_dist || exit 1
         fi
 
     - name: Prepare AnyKernel3 Zip
