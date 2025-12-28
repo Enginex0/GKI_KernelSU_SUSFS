@@ -186,11 +186,7 @@ jobs:
             if [ -n "${{ inputs.ksu_commit }}" ]; then
               curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
             else
-              if [ "${{ inputs.susfs_enabled }}" == "true" ]; then
-                curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -
-              else
-                curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s dev
-              fi
+              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s dev
             fi
             ;;
           KSU)
@@ -210,7 +206,6 @@ jobs:
         esac
 
     - name: Clone & Apply SUSFS Patches for KernelSU Variants
-      if: inputs.susfs_enabled == true
       run: |
         SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
         git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
@@ -272,8 +267,8 @@ jobs:
             ;;
           Next)
             cd "$KERNEL_ROOT/KernelSU-Next"
-            #cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
-            #patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
+            cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
+            patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
             ;;
           KSU)
             cd "$KERNEL_ROOT/KernelSU"
