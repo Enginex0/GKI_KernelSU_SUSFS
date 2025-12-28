@@ -686,6 +686,7 @@ jobs:
           #Remove Dirty Flag
           sed -i 's/-dirty//' ./common/scripts/setlocalversion
         else
+          cat ./common/scripts/setlocalversion
           #Remove Dirty Flag
           sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
           sed -i 's/-dirty//g' ./common/scripts/setlocalversion
@@ -697,6 +698,7 @@ jobs:
             echo "Error: -dirty detected in setlocalversion"
             exit 1
           fi
+          cat ./common/scripts/setlocalversion
         fi
 
         #git config --global user.name "TheWildJames"
