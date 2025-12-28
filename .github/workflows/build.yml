@@ -257,6 +257,17 @@ jobs:
             #patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
 
             cd "$KERNEL_ROOT/common"
+            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 43 ]]; then
+              cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/2_fix_base.c.patch ./
+              patch -p1 < fix_base.c.patch
+            fi
+            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]] && [[ $ACTUAL_SUBLEVEL -le 117 ]]; then
+              cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_fdinfo.c.patch ./
+              patch -p1 < fix_fdinfo.c.patch
+            fi
+            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 209 ]]; then
+              sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
+            fi
             ;;
           KSU)
             cd "$KERNEL_ROOT/KernelSU"
