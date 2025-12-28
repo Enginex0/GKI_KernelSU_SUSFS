@@ -258,7 +258,7 @@ jobs:
 
             cd "$KERNEL_ROOT/common"
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 43 ]]; then
-              cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/2_fix_base.c.patch ./
+              cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_base.c.patch ./
               patch -p1 < fix_base.c.patch
             fi
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]] && [[ $ACTUAL_SUBLEVEL -le 117 ]]; then
