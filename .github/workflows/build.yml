@@ -182,7 +182,7 @@ jobs:
             if [ -n "${{ inputs.ksu_commit }}" ]; then
               curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
             else
-              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s dev
+              curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
             fi
             ;;
           KSU)
@@ -223,16 +223,6 @@ jobs:
             ;;
           Next)
             SUSFS_VERSION="2.0.0"
-            case "$TARGET" in 
-              android12-5.10) COMMIT="ba9596176b0c23c433220fd3373bfbcda5e83147" ;;
-              android13-5.10) COMMIT="6796d4799aa943ef7cdeccda95e14302b4cd734c" ;;
-              android13-5.15) COMMIT="e7424bd61af892ab698ad9e93557e15dc7965590" ;;
-              android14-5.15) COMMIT="2932a2deb506fdd39621ab43b7daa16c2798a12b" ;;
-              android14-6.1) COMMIT="223c11b421a649e4180719eed00fc3122bcdb241" ;;
-              android15-6.6) COMMIT="c2b0526cf218b72f7cafe642ff0eac5d83efba80" ;;
-              android16-6.12) COMMIT="57474b0393ec3b2f7f6966e27ab671e3a5a79107" ;;
-            esac
-            git checkout "$COMMIT"
             ;;
           KSU)
             SUSFS_VERSION="2.0.0"
@@ -485,7 +475,6 @@ jobs:
         cat >> "${{ env.DEFCONFIG }}" << 'EOF'
         # KernelSU Configuration
         CONFIG_KSU=y
-
         CONFIG_KSU_SUSFS=y
 
         # Mountify Support
