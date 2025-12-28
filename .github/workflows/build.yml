@@ -309,38 +309,37 @@ jobs:
             fi
             ;;
           Next)
-            echo "Applying show_pad; patch..."
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 209 ]] ||
                [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 209 ]] ||
                [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 148 ]] ||
                [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "5.15" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 148 ]] ||
                [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" && "${{ inputs.os_patch_level }}" != "2024-05" && $ACTUAL_SUBLEVEL -le 75 ]]; then
+              echo "Applying show_pad; patch..."
               sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
             fi
 
-            echo "Applying 1_fix_base.c; patch..."
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 43 ]] ||
                [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" && $ACTUAL_SUBLEVEL -ge 145 ]] ||
                [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" && $ACTUAL_SUBLEVEL -ge 98 ]]; then
+              echo "Applying 1_fix_base.c; patch..."
               cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/1_fix_base.c.patch ./
               patch -p1 < 1_fix_base.c.patch
             fi
 
-            echo "Applying 2_fix_base.c; patch..."
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 43 ]]; then
+              echo "Applying 2_fix_base.c; patch..."
               cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/2_fix_base.c.patch ./
               patch -p1 < 2_fix_base.c.patch
             fi
 
-            echo "Applying fix_task_mmu.c; patch..."
             if [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" && $ACTUAL_SUBLEVEL -le 58 ]]; then
+              echo "Applying fix_task_mmu.c; patch..."
               cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_task_mmu.c.patch ./
               patch -p1 < fix_task_mmu.c.patch
             fi
 
-            echo "Applying Android 13 5.15 patchs..."
-            # Apply additional SUSFS patches for Android 13 5.15 compatibility
             if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" ]] && [[ ${{ inputs.sub_level }} -le 41 ]]; then
+              echo "Applying Android 13 5.15 patchs..."
               cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_fdinfo.c.patch ./
               patch -p1 < fix_fdinfo.c.patch
               cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_namespace.c.patch ./
@@ -514,9 +513,6 @@ jobs:
         CONFIG_IP_SET_HASH_NETIFACE=y
         CONFIG_IP_SET_LIST_SET=y
 
-        # CONFIG_LTO_CLANG is not set
-        # CONFIG_LTO_CLANG_THIN is not set
-        # CONFIG_LTO_CLANG_FULL is not set
         EOF
 
         # Remove check_defconfig
@@ -705,11 +701,9 @@ jobs:
       run: |
         set -ex
         if [ -f "build/build.sh" ]; then
-          #export KBUILD_BUILD_TIMESTAMP="$(date -u)"
           LTO=none BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
-          #export SOURCE_DATE_EPOCH=$(date +%s)
-          tools/bazel build --config=stamp --config=fast --lto=none //common:kernel_aarch64_dist || exit 1
+          tools/bazel build --config=fast --lto=none //common:kernel_aarch64_dist || exit 1
         fi
 
     - name: Prepare AnyKernel3 Zip
