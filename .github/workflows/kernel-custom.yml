@@ -13,9 +13,6 @@ on:
       ksu_commit:
         required: false
         type: string
-      susfs_enabled:
-        required: true
-        type: boolean
 
 jobs:
   build-kernel-custom:
@@ -54,5 +51,3 @@ jobs:
       variant: ${{ matrix.variant }}
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
-      susfs_enabled: ${{ inputs.susfs_enabled }}
-
