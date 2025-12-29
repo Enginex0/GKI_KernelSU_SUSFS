@@ -344,7 +344,7 @@ jobs:
         fi
 
     - name: Add BBG
-      if: true
+      if: false
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         curl -LSs https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
@@ -402,6 +402,11 @@ jobs:
         cat >> "${{ env.DEFCONFIG }}" << 'EOF'
         # KernelSU Configuration
         CONFIG_KSU=y
+
+        CONFIG_KPROBES=y
+        CONFIG_HAVE_KPROBES=y
+        CONFIG_KPROBE_EVENTS=y
+        
         CONFIG_KSU_SUSFS=y
 
         # Mountify Support
