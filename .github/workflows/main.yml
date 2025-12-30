@@ -22,6 +22,10 @@ on:
         type: string
         required: false
       # Build Selection
+      build_check:
+        description: "Build Check"
+        type: boolean
+        default: false
       build_a12_5_10:
         description: "Android 12 - 5.10"
         type: boolean
@@ -56,6 +60,14 @@ on:
         default: true
 
 jobs:
+  build-check:
+    if: inputs.build_check
+    uses: ./.github/workflows/check-builds.yml
+    secrets: inherit
+    with:
+      ksu_variant: ${{ inputs.ksu_variant }}
+      ksu_commit: ${{ inputs.ksu_commit }}
+
   build-a12-5-10:
     if: inputs.build_a12_5_10
     uses: ./.github/workflows/kernel-a12-5-10.yml
@@ -132,6 +144,7 @@ jobs:
     - build-a15-6-6
     - build-a16-6-12
     - build-custom
+    - build-check
 
     env:
       GH_TOKEN: ${{ github.token }}

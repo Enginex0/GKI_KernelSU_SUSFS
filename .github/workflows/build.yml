@@ -27,6 +27,10 @@ on:
       ksu_commit:
         required: false
         type: string
+      susfs_enabled:
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   build-gki:
@@ -182,7 +186,7 @@ jobs:
             if [ -n "${{ inputs.ksu_commit }}" ]; then
               curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
             else
-              curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
+              curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -
             fi
             ;;
           KSU)
