@@ -189,6 +189,7 @@ jobs:
               curl -LSs "https://raw.githubusercontent.com/WildKernels/KernelSU-Next/wild/kernel/setup.sh" | bash -s wild
             elif [ ${{ inputs.ksu_commit }} == "pershoot" ]; then
               curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -
+              sed -i '/ifneq (\$(CONFIG_KPROBES),y)/i $(warning KBUILD CHECK: KSU=$(CONFIG_KSU) KSU_SUSFS=$(CONFIG_KSU_SUSFS) KPROBES=$(CONFIG_KPROBES))' KernelSU-Next/kernel/Kbuild
             else
               curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -
             fi
@@ -412,16 +413,20 @@ jobs:
         CONFIG_KSU=y
         
         CONFIG_KSU_SUSFS=y
+        
+        CONFIG_KPROBES=y
+        CONFIG_HAVE_KPROBES=y
+        CONFIG_KPROBE_EVENTS=y
 
         # Mountify Support
         CONFIG_TMPFS_XATTR=y
         CONFIG_TMPFS_POSIX_ACL=y
-
+        
         # Networking Configuration
         CONFIG_IP_NF_TARGET_TTL=y
         CONFIG_IP6_NF_TARGET_HL=y
         CONFIG_IP6_NF_MATCH_HL=y
-
+        
         # BBR TCP Congestion Control
         CONFIG_TCP_CONG_ADVANCED=y
         CONFIG_TCP_CONG_BBR=y
@@ -429,7 +434,7 @@ jobs:
         CONFIG_TCP_CONG_BIC=n
         CONFIG_TCP_CONG_WESTWOOD=n
         CONFIG_TCP_CONG_HTCP=n
-
+        
         # IPSet Support
         CONFIG_IP_SET=y
         CONFIG_IP_SET_MAX=65534
@@ -449,7 +454,7 @@ jobs:
         CONFIG_IP_SET_HASH_NETPORT=y
         CONFIG_IP_SET_HASH_NETIFACE=y
         CONFIG_IP_SET_LIST_SET=y
-
+        
         EOF
 
         # Remove check_defconfig
