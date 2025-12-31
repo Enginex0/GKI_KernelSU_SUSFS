@@ -75,6 +75,7 @@ jobs:
         df -h
 
     - name: Maximize Build Space
+      if: false
       run: |
         curl -Ls https://raw.githubusercontent.com/apache/arrow/main/ci/scripts/util_free_space.sh | bash
 
@@ -119,6 +120,7 @@ jobs:
         df -h
 
     - name: Maximize build space
+      if: false
       uses: AdityaGarg8/remove-unwanted-software@v5
       with:
         remove-dotnet: 'true'
@@ -132,6 +134,7 @@ jobs:
         verbose: 'true'
 
     - name: Free Disk Space
+      if: false
       uses: endersonmenezes/free-disk-space@v3  # Use @main for latest, @v3 for stable
       with:
         remove_android: true
