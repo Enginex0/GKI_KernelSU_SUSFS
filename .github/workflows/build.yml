@@ -74,13 +74,14 @@ jobs:
         echo "Disk space before:"
         df -h
 
+    - name: Maximize build disk space
+      uses: easimon/maximize-build-space@v10
+
     - name: Maximize Build Space
-      if: false
       run: |
         curl -Ls https://raw.githubusercontent.com/apache/arrow/main/ci/scripts/util_free_space.sh | bash
 
     - name: Aggressive cleanup
-      if: false
       run: |
         # Remove Java (JDKs)
         sudo rm -rf /usr/lib/jvm
@@ -120,7 +121,6 @@ jobs:
         df -h
 
     - name: Maximize build space
-      if: false
       uses: AdityaGarg8/remove-unwanted-software@v5
       with:
         remove-dotnet: 'true'
@@ -214,7 +214,8 @@ jobs:
         ) &
         MONITOR_PID=$!
 
-        repo --trace sync -c -j$(nproc --all) --fail-fast --no-tags
+        repo --trace sync -c -j$(nproc --all) --fail-fast --no-tags --force-sync
+
 
         # Stop monitoring
         kill $MONITOR_PID
