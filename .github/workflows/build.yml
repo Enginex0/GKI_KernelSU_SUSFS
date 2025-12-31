@@ -214,7 +214,7 @@ jobs:
         ) &
         MONITOR_PID=$!
 
-        repo --trace sync -c -j$(nproc --all) --fail-fast --no-tags --force-sync
+        repo --trace sync -c -j$(nproc --all) --fail-fast --no-tags --force-sync --no-clone-bundle
 
 
         # Stop monitoring
