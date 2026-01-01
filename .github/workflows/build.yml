@@ -74,66 +74,6 @@ jobs:
         echo "Disk space before:"
         df -h
 
-    - name: Maximize build disk space
-      uses: easimon/maximize-build-space@v10
-
-    - name: Maximize Build Space
-      run: |
-        curl -Ls https://raw.githubusercontent.com/apache/arrow/main/ci/scripts/util_free_space.sh | bash
-
-    - name: Aggressive cleanup
-      run: |
-        # Remove Java (JDKs)
-        sudo rm -rf /usr/lib/jvm
-
-        # Remove .NET SDKs
-        sudo rm -rf /usr/share/dotnet
-
-        # Remove Swift toolchain
-        sudo rm -rf /usr/share/swift
-
-        # Remove Haskell (GHC)
-        sudo rm -rf /usr/local/.ghcup
-
-        # Remove Julia
-        sudo rm -rf /usr/local/julia*
-
-        # Remove Android SDKs
-        sudo rm -rf /usr/local/lib/android
-
-        # Remove Chromium (optional if not using for browser tests)
-        sudo rm -rf /usr/local/share/chromium
-
-        # Remove Microsoft/Edge and Google Chrome builds
-        sudo rm -rf /opt/microsoft /opt/google
-
-        # Remove Azure CLI
-        sudo rm -rf /opt/az
-
-        # Remove PowerShell
-        sudo rm -rf /usr/local/share/powershell
-
-        # Remove CodeQL and other toolcaches
-        sudo rm -rf /opt/hostedtoolcache
-
-        docker system prune -af || true
-        docker builder prune -af || true
-        df -h
-
-    - name: Maximize build space
-      if: false
-      uses: AdityaGarg8/remove-unwanted-software@v5
-      with:
-        remove-dotnet: 'true'
-        remove-android: 'true'
-        remove-haskell: 'true'
-        remove-codeql: 'true'
-        remove-docker-images: 'true'
-        remove-large-packages: 'true'
-        remove-cached-tools: 'true'
-        remove-swapfile: 'false'
-        verbose: 'true'
-
     - name: Free Disk Space
       if: true
       uses: endersonmenezes/free-disk-space@v3  # Use @main for latest, @v3 for stable
@@ -146,7 +86,7 @@ jobs:
         remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
         remove_packages_one_command: true
         remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/lib/node_modules /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
-        rm_cmd: "rm"  # Use 'rmz' for faster deletion (default: 'rm')
+        rm_cmd: "rmz"  # Use 'rmz' for faster deletion (default: 'rm')
         rmz_version: "3.1.1"  # Required when rm_cmd is 'rmz'
         testing: false
 
