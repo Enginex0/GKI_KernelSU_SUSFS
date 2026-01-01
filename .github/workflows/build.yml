@@ -305,16 +305,55 @@ jobs:
             #patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
 
             cd "$KERNEL_ROOT/common"
-            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 43 ]]; then
-              cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_base.c.patch ./
-              patch -p1 < fix_base.c.patch
+            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
+              if [ "$ACTUAL_SUBLEVEL" -le 43 ]; then
+                cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/a12-5.10-fix-base.c.patch ./
+                patch -p1 < a12-5.10-fix-base.c.patch
+              fi
+              if [ "$ACTUAL_SUBLEVEL" -le 117 ]; then
+                cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/1-fix-fdinfo.c.patch ./
+                patch -p1 < a12-5.10-fix-fdinfo.c.patch
+              fi
+              if [ "$ACTUAL_SUBLEVEL" -le 209 ]; then
+                sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
+              fi
             fi
-            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]] && [[ $ACTUAL_SUBLEVEL -le 117 ]]; then
-              cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_fdinfo.c.patch ./
-              patch -p1 < fix_fdinfo.c.patch
+            if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
+              if [ "$ACTUAL_SUBLEVEL" -le 117 ]; then
+                cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/1-fix-fdinfo.c.patch ./
+                patch -p1 < a13-5.10-fix-fdinfo.c.patch
+              fi
             fi
-            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 209 ]]; then
-              sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
+            if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" ]]; then
+              if [[ "$ACTUAL_SUBLEVEL" -le 41 ]]; then
+              cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/a13-5.15-fix-fdinfo.c.patch ./
+                patch -p1 < a13-5.15-fix-fdinfo.c.patch
+                cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/a13-5.15-fix-namespace.c.patch ./
+                patch -p1 < a13-5.15-fix-namespace.c.patch
+                cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/a13-5.15-fix-open.c.patch ./
+                patch -p1 < a13-5.15-fix-open.c.patch
+                sed -i 's/i_uid_into_mnt(i_user_ns(inode), inode)/i_uid_into_mnt(inode->i_sb->s_user_ns, inode)/g' fs/susfs.c
+              fi
+            fi
+            if [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "5.15" ]]; then
+              if [ "$ACTUAL_SUBLEVEL" -le 9999 ]; then
+                echo "Not Needed"
+              fi
+            fi
+            if [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" ]]; then
+              if [ "$ACTUAL_SUBLEVEL" -le 9999 ]; then
+                echo "Not Needed"
+              fi
+            fi
+            if [[ "${{ inputs.android_version }}" == "android15" && "${{ inputs.kernel_version }}" == "6.6" ]]; then
+              if [ "$ACTUAL_SUBLEVEL" -le 9999 ]; then
+                echo "Not Needed"
+              fi
+            fi
+            if [[ "${{ inputs.android_version }}" == "android16" && "${{ inputs.kernel_version }}" == "6.12" ]]; then
+              if [ "$ACTUAL_SUBLEVEL" -ge 9999 ]; then
+                echo "Not Needed"
+              fi
             fi
             ;;
           KSU)
