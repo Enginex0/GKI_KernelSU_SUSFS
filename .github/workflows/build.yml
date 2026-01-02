@@ -276,7 +276,7 @@ jobs:
               cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
             else
               cp $SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
-              patch -p1 < 10_enable_susfs_for_ksu.patch
+              patch -p1 < 10_enable_susfs_for_ksu.patch || true
               cp "$KERNEL_PATCHES/next/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
               for patch in fix_*.patch; do
                 patch -p1 < "$patch"
