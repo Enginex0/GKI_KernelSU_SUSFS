@@ -388,7 +388,7 @@ jobs:
             if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" ]] && [[ ${{ inputs.sub_level }} -le 41 ]]; then
               cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_fdinfo.c.patch ./
               patch -p1 < fix_fdinfo.c.patch || true
-              cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_namespace.c.patch ./
+              cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_namespace.c.patch ./w
               patch -p1 < fix_namespace.c.patch || true
               cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/fix_open.c.patch ./
               patch -p1 < fix_open.c.patch || true
@@ -398,7 +398,7 @@ jobs:
         esac
 
     - name: Apply Hooks Patches
-      if: ${{ inputs.ksu_variant == 'WKSU' }}
+      if: false
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
         cp "$KERNEL_PATCHES/wild/hooks/scope_min_manual_hooks_v1.4.patch" ./
