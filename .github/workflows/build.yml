@@ -119,12 +119,6 @@ jobs:
     - name: Clone AnyKernel3 and Other Dependencies
       run: |
         ANYKERNEL_BRANCH="gki-2.0"
-
-        # Random delay to avoid rate limiting
-        DELAY=$((1 + RANDOM % 10))
-        echo "Sleeping for $DELAY seconds..."
-        sleep $DELAY
-
         git clone https://github.com/WildKernels/AnyKernel3.git -b "$ANYKERNEL_BRANCH"
         rm -rf AnyKernel3/.git
         git clone https://github.com/WildKernels/kernel_patches.git
@@ -142,24 +136,7 @@ jobs:
           sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
         fi
 
-        # Start monitoring in background
-        start_time=$(date +%s)
-        (
-            while true; do
-                current_time=$(date +%s)
-                elapsed=$((current_time - start_time))
-                # Print elapsed time and disk usage on a single line
-                echo "[Monitor] Time: ${elapsed}s | Disk: $(df -h . | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')"
-                sleep 10
-            done
-        ) &
-        MONITOR_PID=$!
-
         repo --trace sync -c -j$(nproc --all) --fail-fast --no-tags --force-sync --no-clone-bundle
-
-
-        # Stop monitoring
-        kill $MONITOR_PID
 
     - name: Extract Sublevel and Set File Name
       run: |
@@ -196,7 +173,7 @@ jobs:
           fi
         fi 
 
-    - name: Fix Less Then 6.6.50 Builds
+    - name: Fix Less Than 6.6.50 Builds
       if: inputs.android_version == 'android15' && inputs.kernel_version == '6.6'
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
