@@ -68,11 +68,6 @@ jobs:
         echo "Variant         : ${{ inputs.variant || 'Standard' }}"
         echo "========================================"
 
-    - name: Build Space Before
-      run: |
-        echo "Disk space before:"
-        df -h
-
     - name: Free Disk Space
       if: true
       uses: endersonmenezes/free-disk-space@v3  # Use @main for latest, @v3 for stable
@@ -88,11 +83,6 @@ jobs:
         rm_cmd: "rmz"  # Use 'rmz' for faster deletion (default: 'rm')
         rmz_version: "3.1.1"  # Required when rm_cmd is 'rmz'
         testing: false
-
-    - name: Build Space After
-      run: |
-        echo "Disk space after:"
-        df -h
 
     - name: Setup Build Environment
       run: |
