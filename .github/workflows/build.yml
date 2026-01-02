@@ -228,7 +228,7 @@ jobs:
               curl -LSs "https://raw.githubusercontent.com/WildKernels/KernelSU-Next/wild/kernel/setup.sh" | bash -s wild
             elif [ ${{ inputs.ksu_commit }} == "pershoot" ]; then
               curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -
-              sed -i '/ifneq (\$(CONFIG_KPROBES),y)/i $(warning KBUILD CHECK: KSU=$(CONFIG_KSU) KSU_SUSFS=$(CONFIG_KSU_SUSFS) KPROBES=$(CONFIG_KPROBES))' KernelSU-Next/kernel/Kbuild
+              git restore --source=5aad87b3c6319330d6991ba4c937e44e50fe16f5^ -- kernel/Kbuild
             else
               curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -
             fi
@@ -308,7 +308,8 @@ jobs:
                 patch -p1 < a12-5.10-fix-fdinfo.c.patch
               fi
               if [ "$ACTUAL_SUBLEVEL" -le 209 ]; then
-                sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
+                echo "Not Needed"
+                #sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
               fi
             fi
             if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
@@ -485,9 +486,9 @@ jobs:
         
         CONFIG_KSU_SUSFS=y
         
-        CONFIG_KPROBES=y
-        CONFIG_HAVE_KPROBES=y
-        CONFIG_KPROBE_EVENTS=y
+        #CONFIG_KPROBES=y
+        #CONFIG_HAVE_KPROBES=y
+        #CONFIG_KPROBE_EVENTS=y
 
         # Mountify Support
         CONFIG_TMPFS_XATTR=y
@@ -726,7 +727,11 @@ jobs:
         if [ -f "build/build.sh" ]; then
           LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
-          tools/bazel build --config=fast --lto=none //common:kernel_aarch64_dist || exit 1
+          if [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "5.15" ]]; then
+            tools/bazel build --config=fast --lto=thin //common:kernel_aarch64_dist || exit 1
+          else
+            tools/bazel build --config=fast --lto=none //common:kernel_aarch64_dist || exit 1
+          fi
         fi
 
     - name: Prepare AnyKernel3 Zip
