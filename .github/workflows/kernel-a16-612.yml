@@ -14,9 +14,8 @@ on:
         required: false
         type: string
       build_bypass:
-        required: false
+        required: true
         type: boolean
-        default: true
 
 jobs:
   build-kernels-a16-612:
