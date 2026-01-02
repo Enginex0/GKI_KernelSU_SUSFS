@@ -27,7 +27,7 @@ on:
       ksu_commit:
         required: false
         type: string
-      susfs_enabled:
+      build_bypass:
         required: false
         type: boolean
         default: true
@@ -48,7 +48,7 @@ jobs:
               inputs.variant == 'TheWildJamesTest' && '["TheWildJamesTest"]' ||
               inputs.variant == 'MarionKernel' && '["MarionKernel"]' ||
               inputs.variant == 'Hakan' && '["Hakan"]' ||
-              '["Normal","Bypass"]'
+              (inputs.build_bypass && '["Normal","Bypass"]' || '["Normal"]')
             )
           }}
 

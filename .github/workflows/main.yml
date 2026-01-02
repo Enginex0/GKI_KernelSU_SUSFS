@@ -22,6 +22,10 @@ on:
         type: string
         default: "pershoot"
         required: false
+      build_bypass:
+        description: "Build Bypass"
+        type: boolean
+        default: true
       # Build Selection
       build_a12_5_10:
         description: "Android 12 - 5.10"
@@ -64,6 +68,7 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
+      build_bypass: ${{ inputs.build_bypass }}
 
   build-a13-5-10:
     if: inputs.build_a13_5_10
@@ -72,6 +77,7 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
+      build_bypass: ${{ inputs.build_bypass }}
 
   build-a13-5-15:
     if: inputs.build_a13_5_15
@@ -80,6 +86,7 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
+      build_bypass: ${{ inputs.build_bypass }}
 
   build-a14-5-15:
     if: inputs.build_a14_5_15
@@ -88,6 +95,7 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
+      build_bypass: ${{ inputs.build_bypass }}
 
   build-a14-6-1:
     if: inputs.build_a14_6_1
@@ -96,6 +104,7 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
+      build_bypass: ${{ inputs.build_bypass }}
 
   build-a15-6-6:
     if: inputs.build_a15_6_6
@@ -104,6 +113,7 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
+      build_bypass: ${{ inputs.build_bypass }}
 
   build-a16-6-12:
     if: inputs.build_a16_6_12
@@ -112,6 +122,7 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
+      build_bypass: ${{ inputs.build_bypass }}
 
   build-custom:
     if: inputs.build_custom
@@ -120,6 +131,7 @@ jobs:
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
+      build_bypass: ${{ inputs.build_bypass }}
 
   rej:
     runs-on: ubuntu-latest
@@ -323,4 +335,3 @@ jobs:
           ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})  
           [🔗 View GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.NEW_TAG }})" \
           -F parse_mode="Markdown"
-

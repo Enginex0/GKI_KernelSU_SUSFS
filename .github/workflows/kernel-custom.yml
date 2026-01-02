@@ -13,6 +13,10 @@ on:
       ksu_commit:
         required: false
         type: string
+      build_bypass:
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   build-kernel-custom:
@@ -51,3 +55,4 @@ jobs:
       variant: ${{ matrix.variant }}
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
+      build_bypass: ${{ inputs.build_bypass }}
