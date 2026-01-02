@@ -185,12 +185,16 @@ jobs:
             cd aio-rejects
             zip -r -q -9 ../AIO-REJ.zip .
             cd ..
-            
-            echo "Uploading AIO-REJ.zip..."
-            gh release upload "${{ env.NEW_TAG }}" "AIO-REJ.zip" --clobber
         else
             echo "No rejects found to upload."
         fi
+
+    - name: Upload AIO-REJ Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: AIO-REJ
+        path: AIO-REJ.zip
+        if-no-files-found: ignore
 
   release:
     runs-on: ubuntu-latest
@@ -283,12 +287,6 @@ jobs:
       with:
         path: ./downloaded-artifacts
         pattern: '*-AnyKernel3'
-
-    - name: Download Misc Artifacts
-      uses: actions/download-artifact@v5
-      with:
-        path: ./downloaded-artifacts
-        pattern: '*-Normal-Misc'
 
     - name: Upload Release Assets
       run: |+
