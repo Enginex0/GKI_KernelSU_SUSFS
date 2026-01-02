@@ -203,7 +203,7 @@ jobs:
             elif [ "${{ inputs.ksu_commit }}" == "pershoot" ]; then
               curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
               cd KernelSU-Next
-              #git restore --source=5aad87b3c6319330d6991ba4c937e44e50fe16f5^ -- kernel/Kbuild
+              git restore --source=5aad87b3c6319330d6991ba4c937e44e50fe16f5^ -- kernel/Kbuild
             elif [ -n "${{ inputs.ksu_commit }}" ]; then
               curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
             else
