@@ -20,14 +20,10 @@ on:
       ksu_commit:
         description: "KSU Commit (optional)"
         type: string
-        default: "pershoot"
+        default: ""
         required: false
       build_bypass:
         description: "Build Bypass"
-        type: boolean
-        default: false
-      build_lts:
-        description: "Build All LTS Kernels"
         type: boolean
         default: false
       # Build Selection
@@ -63,6 +59,10 @@ on:
         description: "Custom Builds"
         type: boolean
         default: true
+      build_lts:
+        description: "Build All LTS Kernels"
+        type: boolean
+        default: false
 
 jobs:
   build-a12-5-10:
@@ -158,6 +158,7 @@ jobs:
     - build-a15-6-6
     - build-a16-6-12
     - build-custom
+    - build-lts
     steps:
     - name: Download Misc Artifacts
       uses: actions/download-artifact@v5

@@ -199,14 +199,14 @@ jobs:
             ;;
           Next)
             if [ -n "${{ inputs.ksu_commit }}" ]; then
-              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
+              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
             elif [ ${{ inputs.ksu_commit }} == "wild" ]; then
               curl -LSs "https://raw.githubusercontent.com/WildKernels/KernelSU-Next/wild/kernel/setup.sh" | bash -s wild
             elif [ ${{ inputs.ksu_commit }} == "pershoot" ]; then
               curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -
               git restore --source=5aad87b3c6319330d6991ba4c937e44e50fe16f5^ -- kernel/Kbuild
             else
-              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -
+              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -
             fi
             ;;
           KSU)
@@ -250,7 +250,6 @@ jobs:
             ;;
           KSU)
             SUSFS_VERSION="2.0.0"
-            echo "Not Needed"
             ;;
         esac
 
@@ -266,12 +265,27 @@ jobs:
         case "${{ inputs.ksu_variant }}" in
           WKSU)
             cd "$KERNEL_ROOT/Wild_KSU"
-            echo "Not Needed"
             ;;
           Next)
             cd "$KERNEL_ROOT/KernelSU-Next"
-            #cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
-            #patch -p1 < Next-3.0.0-susfs-2.0.0-AIO.patch
+            if [ -n "${{ inputs.ksu_commit }}" ]; then
+              echo "add if needed"
+            elif [ ${{ inputs.ksu_commit }} == "wild" ]; then
+              cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
+            elif [ ${{ inputs.ksu_commit }} == "pershoot" ]; then
+              cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
+            else
+              cp $SUSFS4KSU/kernel_patches/kernelsu/10_enable_susfs_for_ksu.patch ./
+              patch -p1 < 10_enable_susfs_for_ksu.patch
+              cp "$KERNEL_PATCHES/next/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
+              for patch in fix_*.patch; do
+                patch -p1 < "$patch"
+              done
+              patch -p1 < overwrite_hook_mode.patch
+              patch -p1 < ksu_toolkit.patch
+            fi
+            
+
 
             cd "$KERNEL_ROOT/common"
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
