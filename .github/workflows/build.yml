@@ -198,10 +198,10 @@ jobs:
             fi
             ;;
           Next)
-            if [ ${{ inputs.ksu_commit }} == "wild" ]; then
+            if [ "${{ inputs.ksu_commit }}" == "wild" ]; then
               curl -LSs "https://raw.githubusercontent.com/WildKernels/KernelSU-Next/wild/kernel/setup.sh" | bash -s wild
-            elif [ ${{ inputs.ksu_commit }} == "pershoot" ]; then
-              curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -
+            elif [ "${{ inputs.ksu_commit }}" == "pershoot" ]; then
+              curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
               cd KernelSU-Next
               #git restore --source=5aad87b3c6319330d6991ba4c937e44e50fe16f5^ -- kernel/Kbuild
             elif [ -n "${{ inputs.ksu_commit }}" ]; then
