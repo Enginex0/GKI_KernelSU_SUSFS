@@ -26,6 +26,10 @@ on:
         description: "Build Bypass"
         type: boolean
         default: false
+      build_lts:
+        description: "Build All LTS Kernels"
+        type: boolean
+        default: false
       # Build Selection
       build_a12_5_10:
         description: "Android 12 - 5.10"
@@ -133,6 +137,15 @@ jobs:
       ksu_commit: ${{ inputs.ksu_commit }}
       build_bypass: ${{ inputs.build_bypass }}
 
+  build-lts:
+    if: inputs.build_lts
+    uses: ./.github/workflows/kernel-lts.yml
+    secrets: inherit
+    with:
+      ksu_variant: ${{ inputs.ksu_variant }}
+      ksu_commit: ${{ inputs.ksu_commit }}
+      build_bypass: ${{ inputs.build_bypass }}
+
   rej:
     if: always()
     runs-on: ubuntu-latest
@@ -207,10 +220,11 @@ jobs:
     - build-a15-6-6
     - build-a16-6-12
     - build-custom
+    - build-lts
 
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_NAME: "GKI Kernels With KernelSU-Next & SUSFS v2.0.0"
+      RELEASE_NAME: "!!TESTING!! GKI Kernels With KernelSU-Next & SUSFS v2.0.0 !!TESTING!!"
       RELEASE_BODY: ""
     steps:
     - name: Checkout code
@@ -228,6 +242,8 @@ jobs:
     - name: Set release body
       run: |
         cat << 'EOF' > release_body.md
+
+        !!THIS RELEASE IS A TESTING RELEASE!!
 
         **IMPORTANT DISCLAIMER**
         This software is provided for testing and educational purposes only. Use at your own risk.
@@ -270,6 +286,8 @@ jobs:
 
         Module: 
         -> https://github.com/sidex15/ksu_module_susfs
+
+        !!THIS RELEASE IS A TESTING RELEASE!!
         EOF
 
     - name: Create GitHub Release

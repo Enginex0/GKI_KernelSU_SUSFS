@@ -479,6 +479,9 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
         fi
 
+        echo "Contents of ${{ env.DEFCONFIG }}:"
+        cat "${{ env.DEFCONFIG }}"
+
     - name: Configure Audio Modules
       if: inputs.variant == 'Hakan'
       working-directory: ${{ env.KERNEL_ROOT }}
