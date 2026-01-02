@@ -290,14 +290,7 @@ jobs:
         case "${{ inputs.ksu_variant }}" in
           WKSU)
             cd "$KERNEL_ROOT/Wild_KSU"
-            cp "$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" .
-            patch -p1 < 10_enable_susfs_for_ksu.patch || true
-            cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_core_hook.c.patch" ./
-            patch -p1 < fix_core_hook.c.patch
-            cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_sucompat.c.patch" ./
-            patch -p1 < fix_sucompat.c.patch
-            cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/fix_kernel_compat.c.patch" ./
-            patch -p1 < fix_kernel_compat.c.patch
+            echo "Not Needed"
             ;;
           Next)
             cd "$KERNEL_ROOT/KernelSU-Next"
@@ -311,7 +304,7 @@ jobs:
                 patch -p1 < a12-5.10-fix-base.c.patch
               fi
               if [ "$ACTUAL_SUBLEVEL" -le 117 ]; then
-                cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/1-fix-fdinfo.c.patch ./
+                cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/a12-5.10-fix-fdinfo.c.patch ./
                 patch -p1 < a12-5.10-fix-fdinfo.c.patch
               fi
               if [ "$ACTUAL_SUBLEVEL" -le 209 ]; then
@@ -320,7 +313,7 @@ jobs:
             fi
             if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
               if [ "$ACTUAL_SUBLEVEL" -le 117 ]; then
-                cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/1-fix-fdinfo.c.patch ./
+                cp $KERNEL_PATCHES/ksu/susfs_fix_patches/v${SUSFS_VERSION}/a13-5.10-fix-fdinfo.c.patch ./
                 patch -p1 < a13-5.10-fix-fdinfo.c.patch
               fi
             fi
