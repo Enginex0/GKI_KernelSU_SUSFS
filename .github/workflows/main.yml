@@ -20,7 +20,7 @@ on:
       ksu_commit:
         description: "KSU Commit (optional)"
         type: string
-        default: ""
+        default: "pershoot"
         required: false
       build_bypass:
         description: "Build Bypass"
