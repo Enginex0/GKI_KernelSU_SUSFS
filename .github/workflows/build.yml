@@ -201,6 +201,7 @@ jobs:
                 echo "Commit not found"
                 exit 1
               fi
+              sed -i 's|^\(KSU_NEXT_MANAGER_LIST :=.*\)$|\1,0x384:70fcd9bfc26b6346f13c7d85916e563cc4ce51379fbf0ce95fb47e9e15b5c762|' kernel/kbuild
             elif [[ -n "${{ inputs.ksu_commit }}" ]]; then
               curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
             else
