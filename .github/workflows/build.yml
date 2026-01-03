@@ -310,8 +310,9 @@ jobs:
                 patch -p1 < fdinfo.c.patch
               fi
               if [[ "$ACTUAL_SUBLEVEL" -le 43 ]]; then
-                cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/a12-5.10/base.c.patch ./
-                patch -p1 < base.c.patch
+                #cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/a12-5.10/base.c.patch ./
+                #patch -p1 < base.c.patch
+                echo "base.c.patch not applied"
               fi
             fi
 
