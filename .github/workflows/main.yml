@@ -351,3 +351,19 @@ jobs:
           ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})  
           [🔗 View GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.NEW_TAG }})" \
           -F parse_mode="Markdown"
+
+  notify-actions:
+    runs-on: ubuntu-latest
+    if: inputs.release_type == 'Actions'
+    steps:
+    - name: Send Telegram Notification
+      run: |
+        curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -F message_thread_id="${{ secrets.TELEGRAM_TOPIC_ID_GKI }}" \
+          -F text="
+          🌽 *New Kernel Actions Build Finished*
+          📦 *Repository:* [${{ github.repository }}](https://github.com/${{ github.repository }})
+          ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+          [🔗 View Action Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" \
+          -F parse_mode="Markdown"
