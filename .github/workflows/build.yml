@@ -188,24 +188,10 @@ jobs:
             fi
             ;;
           Next)
-            if [[ "${{ inputs.ksu_commit }}" == "wild" ]]; then
-              curl -LSs "https://raw.githubusercontent.com/WildKernels/KernelSU-Next/wild/kernel/setup.sh" | bash -s wild
-            elif [[ "${{ inputs.ksu_commit }}" == "pershoot" ]]; then
-              curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
-              cd KernelSU-Next
-              COMMIT_HASH=$(git log --grep="kernel: Allow building when KSU_SUSFS is unset" -n 1 --format=%H)
-              if [[ -n "$COMMIT_HASH" ]]; then
-                echo "Found commit $COMMIT_HASH, restoring kernel/Kbuild..."
-                git restore --source="${COMMIT_HASH}^" -- kernel/Kbuild
-              else
-                echo "Commit not found"
-                exit 1
-              fi
-              sed -i 's|^\(KSU_NEXT_MANAGER_LIST :=.*\)$|\1,0x381:52d52d8c8bfbe53dc2b6ff1c613184e2c03013e090fe8905d8e3d5dc2658c2e4|' kernel/Kbuild
-            elif [[ -n "${{ inputs.ksu_commit }}" ]]; then
+            if [[ -n "${{ inputs.ksu_commit }}" ]]; then
               curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/stable/kernel/setup.sh" | bash -s "${{ inputs.ksu_commit }}"
             else
-              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -
+              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/dev/kernel/setup.sh" | bash -s dev
             fi
             ;;
           KSU)
@@ -228,20 +214,6 @@ jobs:
       run: |
         SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
         git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
-        cd susfs4ksu
-        TARGET="${{ inputs.android_version }}-${{ inputs.kernel_version }}"
-        COMMIT=""
-        case "${{ inputs.ksu_variant }}" in
-          WKSU)
-            SUSFS_VERSION="2.0.0"
-            ;;
-          Next)
-            SUSFS_VERSION="2.0.0"
-            ;;
-          KSU)
-            SUSFS_VERSION="2.0.0"
-            ;;
-        esac
 
         case "${{ inputs.ksu_variant }}" in
           WKSU)
@@ -336,44 +308,36 @@ jobs:
           Next)
             SUSFS_VERSION="2.0.0"
             cd "$KERNEL_ROOT/KernelSU-Next"
-            if [[ -n "${{ inputs.ksu_commit }}" ]]; then
-              echo "add if needed"
-            elif [[ ${{ inputs.ksu_commit }} == "wild" ]]; then
-              echo "add if needed"
-            elif [[ ${{ inputs.ksu_commit }} == "pershoot" ]]; then
-              echo "add if needed"
-            else
-              echo "patching kernel"
-              cp $SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
-              patch -p1 < 10_enable_susfs_for_ksu.patch || true
-              echo "patching susfs fix patches"
-              cp "$KERNEL_PATCHES/next/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
-              echo "fixing Makefile/kbuild"
-              patch -p1 < fix_Makefile.patch
-              echo "fixing allowlist.c"
-              patch -p1 < fix_allowlist.c.patch
-              echo "fixing apk_sign.c"
-              patch -p1 < fix_apk_sign.c.patch
-              echo "fixing kernel_umount.c"
-              patch -p1 < fix_kernel_umount.c.patch
-              echo "fixing ksu.c"
-              patch -p1 < fix_ksu.c.patch
-              echo "fixing ksud.c"
-              patch -p1 < fix_ksud.c.patch
-              echo "fixing selinux.c"
-              patch -p1 < fix_selinux.c.patch
-              echo "fixing setuid_hook.c"
-              patch -p1 < fix_setuid_hook.c.patch
-              echo "fixing sucompat.c"
-              patch -p1 < fix_sucompat.c.patch
-              echo "fixing supercalls.c"
-              patch -p1 < fix_supercalls.c.patch
-              echo "overwriting hook mode"
-              patch -p1 < overwrite_hook_mode.patch
-              echo "patching ksu_toolkit"
-              patch -p1 < ksu_toolkit.patch
-            fi
-
+            echo "patching kernel"
+            cp $SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./
+            patch -p1 < 10_enable_susfs_for_ksu.patch || true
+            echo "patching susfs fix patches"
+            cp "$KERNEL_PATCHES/next/susfs_fix_patches/v${SUSFS_VERSION}/"*.patch ./
+            echo "fixing Makefile/kbuild"
+            patch -p1 < fix_Makefile.patch
+            echo "fixing allowlist.c"
+            patch -p1 < fix_allowlist.c.patch
+            echo "fixing apk_sign.c"
+            patch -p1 < fix_apk_sign.c.patch
+            echo "fixing kernel_umount.c"
+            patch -p1 < fix_kernel_umount.c.patch
+            echo "fixing ksu.c"
+            patch -p1 < fix_ksu.c.patch
+            echo "fixing ksud.c"
+            patch -p1 < fix_ksud.c.patch
+            echo "fixing selinux.c"
+            patch -p1 < fix_selinux.c.patch
+            echo "fixing setuid_hook.c"
+            patch -p1 < fix_setuid_hook.c.patch
+            echo "fixing sucompat.c"
+            patch -p1 < fix_sucompat.c.patch
+            echo "fixing supercalls.c"
+            patch -p1 < fix_supercalls.c.patch
+            echo "overwriting hook mode"
+            patch -p1 < overwrite_hook_mode.patch
+            echo "patching ksu_toolkit"
+            patch -p1 < ksu_toolkit.patch
+            
             cd "$KERNEL_ROOT/common"
             cp "$SUSFS4KSU/kernel_patches/fs/"* "$KERNEL_ROOT/common/fs/"
             cp "$SUSFS4KSU/kernel_patches/include/linux/"* "$KERNEL_ROOT/common/include/linux/"
@@ -545,7 +509,6 @@ jobs:
         cat >> "${{ env.DEFCONFIG }}" << 'EOF'
         # KernelSU Configuration
         CONFIG_KSU=y
-        
         CONFIG_KSU_SUSFS=y
 
         # Mountify Support
