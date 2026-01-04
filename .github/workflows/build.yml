@@ -218,7 +218,7 @@ jobs:
         case "${{ inputs.ksu_variant }}" in
           WKSU)
             SUSFS_VERSION="2.0.0"
-            cd "$KERNEL_ROOT/KernelSU-Next"
+            cd "$KERNEL_ROOT/Wild_KSU"
             echo "Nothing to fix for WKSU"
 
             cd "$KERNEL_ROOT/common"
