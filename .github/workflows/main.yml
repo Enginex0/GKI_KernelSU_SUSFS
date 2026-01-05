@@ -345,8 +345,24 @@ jobs:
           echo "Uploading ${artifact_name}.zip..."
           gh release upload "${{ env.NEW_TAG }}" "${artifact_name}.zip" --clobber
         done
-          
+
+    - name: DM Artifacts
+      if: always()
+      run: |
+        # Check for TheWildJames and Normal artifacts
+        for file in ./*TheWildJames*.zip ./*Normal*.zip; do
+          if [ -f "$file" ]; then
+            echo "Sending $file to Telegram DM..."
+            curl -F chat_id="${{ secrets.TELEGRAM_USER_ID }}" \
+                 -F document=@"$file" \
+                 -F caption="📦 **Build**: $file" \
+                 -F parse_mode="Markdown" \
+                 https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument
+          fi
+        done
+
     - name: Send Telegram Notification
+      if: inputs.release_type != 'Actions'
       run: |
         RELEASE_TYPE_TEXT=""
         if [ "${{ inputs.release_type }}" == "Pre-Release" ]; then
