@@ -345,7 +345,6 @@ jobs:
         done
           
     - name: Send Telegram Notification
-      if: inputs.release_type != 'Actions'
       run: |
         RELEASE_TYPE_TEXT=""
         if [ "${{ inputs.release_type }}" == "Pre-Release" ]; then
