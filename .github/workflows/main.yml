@@ -164,31 +164,32 @@ jobs:
       uses: actions/download-artifact@v5
       with:
         path: ./downloaded-artifacts
-        pattern: '*-Normal-Misc'
+        pattern: '*-Rejects'
 
     - name: Process Reject Artifacts
       run: |
         mkdir -p aio-rejects
         
-        # Iterate over Misc artifacts in downloaded-artifacts
-        for dir in ./downloaded-artifacts/*-Normal-Misc; do
+        # Iterate over Rejects artifacts in downloaded-artifacts
+        for dir in ./downloaded-artifacts/*-Rejects; do
             # Ensure it is a directory
             [ -d "$dir" ] || continue
             
             dirname=$(basename "$dir")
             echo "Processing $dirname..."
             
-            # Check for patch-rejects folder
+            # Get original name (remove -Rejects suffix)
+            original_name=${dirname%-Rejects}
+            
+            mkdir -p "aio-rejects/$original_name"
+            
+            # Check for patch-rejects folder (legacy structure) or direct contents
             if [ -d "$dir/patch-rejects" ]; then
-                echo "Found patch-rejects in $dirname"
-                
-                # Get original name (remove -Misc suffix)
-                original_name=${dirname%-Misc}
-                
-                # Move and rename patch-rejects to aio-rejects/original_name
-                mv "$dir/patch-rejects" "aio-rejects/$original_name"
+                echo "Found patch-rejects subdir in $dirname"
+                cp -r "$dir/patch-rejects/." "aio-rejects/$original_name/"
             else
-                echo "No patch-rejects found in $dirname"
+                echo "Copying contents from $dirname"
+                cp -r "$dir/." "aio-rejects/$original_name/"
             fi
         done
         
@@ -229,6 +230,22 @@ jobs:
       RELEASE_NAME: "!!TESTING!! GKI Kernels With KernelSU-Next & SUSFS v2.0.0 !!TESTING!!"
       RELEASE_BODY: ""
     steps:
+    - name: Free Disk Space
+      if: true
+      uses: endersonmenezes/free-disk-space@v3  # Use @main for latest, @v3 for stable
+      with:
+        remove_android: true
+        remove_dotnet: true
+        remove_haskell: true
+        remove_tool_cache: true
+        remove_swap: true
+        remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
+        remove_packages_one_command: true
+        remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/lib/node_modules /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
+        rm_cmd: "rmz"  # Use 'rmz' for faster deletion (default: 'rm')
+        rmz_version: "3.1.1"  # Required when rm_cmd is 'rmz'
+        testing: false
+
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -320,6 +337,7 @@ jobs:
         pattern: '*-AnyKernel3'
 
     - name: Upload Release Assets
+      if:
       run: |+
         shopt -s nullglob
         anykernel_dirs=(./downloaded-artifacts/*-AnyKernel3/)
