@@ -288,9 +288,9 @@ jobs:
         - The Solution: This version changes one line from false to true to force load the kernel module, bypassing the failure check that would normally prevent loading.
 
         Features:
-        -> KernelSU-Next dev-susfs patched by pershoot (Warning from pershoot: This version is not recommended for production use. It is only intended for testing and development purposes.)
+        -> Wild KSU Manager Support, Also Compatible with KernelSU-Next Manager
         -> SUSFS ඞ v2.0.0
-        -> Hybrid Root Hooks
+        -> SUSFS Inline Hooks
         -> Ptrace Patch Support for Older Kernels (<5.16)
         -> IPSet Support for Advanced Network Filtering
         -> Wireguard Support
@@ -308,6 +308,7 @@ jobs:
         -> https://github.com/fatalcoder524/KernelFlasher/
 
         Manager:
+        -> Wild KSU Manager: https://github.com/WildKernels/Wild_KSU
         -> Next: https://github.com/KernelSU-Next/KernelSU-Next
 
         Module: 
@@ -364,21 +365,6 @@ jobs:
           gh release upload "${{ env.NEW_TAG }}" "${artifact_name}.zip" --clobber
         done
 
-    - name: DM Artifacts
-      if: always()
-      run: |
-        # Check for TheWildJames and Normal artifacts
-        for file in ./*TheWildJames*.zip ./*Normal*.zip; do
-          if [ -f "$file" ]; then
-            echo "Sending $file to Telegram DM..."
-            curl -F chat_id="${{ secrets.TELEGRAM_USER_ID }}" \
-                 -F document=@"$file" \
-                 -F caption="📦 **Build**: $file" \
-                 -F parse_mode="Markdown" \
-                 https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument
-          fi
-        done
-
     - name: Send Telegram Notification
       if: inputs.release_type != 'Actions'
       run: |
@@ -401,9 +387,9 @@ jobs:
 
   notify-actions:
     runs-on: ubuntu-latest
-    if: inputs.release_type == 'Actions'
     steps:
     - name: Send Telegram Notification
+      if: inputs.release_type == 'Actions'
       run: |
         curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
           -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
@@ -414,3 +400,38 @@ jobs:
           ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
           [🔗 View Action Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" \
           -F parse_mode="Markdown"
+
+    - name: Send Telegram Notification
+      if: inputs.release_type != 'Actions'
+      run: |
+        RELEASE_TYPE_TEXT=""
+        if [ "${{ inputs.release_type }}" == "Pre-Release" ]; then
+          RELEASE_TYPE_TEXT="🧪 *Pre-Release*"
+        else
+          RELEASE_TYPE_TEXT="🚀 *Release*"
+        fi
+
+        curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+          -F message_thread_id="${{ secrets.TELEGRAM_TOPIC_ID_GKI }}" \
+          -F text="
+          🌽 *New Kernel $RELEASE_TYPE_TEXT Uploaded*  
+          📦 *Repository:* [${{ github.repository }}](https://github.com/${{ github.repository }})  
+          ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})  
+          [🔗 View GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.NEW_TAG }})" \
+          -F parse_mode="Markdown"
+
+    - name: DM Artifacts
+      if: always()
+      run: |
+        # Check for TheWildJames and Normal artifacts
+        for file in ./*TheWildJames*.zip ./*Normal*.zip; do
+          if [ -f "$file" ]; then
+            echo "Sending $file to Telegram DM..."
+            curl -F chat_id="${{ secrets.TELEGRAM_USER_ID }}" \
+                 -F document=@"$file" \
+                 -F caption="📦 **Build**: $file" \
+                 -F parse_mode="Markdown" \
+                 https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument
+          fi
+        done
