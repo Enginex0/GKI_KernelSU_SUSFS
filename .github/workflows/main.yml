@@ -213,13 +213,13 @@ jobs:
     runs-on: ubuntu-latest
     if: inputs.release_type != 'Actions'
     needs:
-    - build-a12-5-10
-    - build-a13-5-10
-    - build-a13-5-15
-    - build-a14-5-15
-    - build-a14-6-1
-    - build-a15-6-6
-    - build-a16-6-12
+    #- build-a12-5-10
+    #- build-a13-5-10
+    #- build-a13-5-15
+    #- build-a14-5-15
+    #- build-a14-6-1
+    #- build-a15-6-6
+    #- build-a16-6-12
     - build-custom
 
     env:
@@ -234,8 +234,15 @@ jobs:
       if: inputs.release_type != 'Actions'
       run: |
         LATEST_TAG=$(gh api repos/${{ github.repository }}/tags --jq '.[0].name' 2>/dev/null || echo "")
-        NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
-
+        if [[ "$LATEST_TAG" =~ ^(.*)-r([0-9]+)$ ]]; then
+          VERSION="${BASH_REMATCH[1]}"
+          REV="${BASH_REMATCH[2]}"
+          NEW_REV=$((REV + 1))
+          NEW_TAG="${VERSION}-r${NEW_REV}"
+        else
+          NEW_TAG="${LATEST_TAG}-r1"
+        fi
+        
         echo "New tag: $NEW_TAG"
         echo "NEW_TAG=${NEW_TAG}" >> $GITHUB_ENV
 
@@ -291,13 +298,18 @@ jobs:
         EOF
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: ${{ env.NEW_TAG }}
-        prerelease: ${{ inputs.release_type == 'Pre-Release' }}
-        files: ""
-        name: ${{ env.RELEASE_NAME }}
-        body_path: release_body.md
+      run: |
+        PRERELEASE_FLAG=""
+        if [ "${{ inputs.release_type }}" == "Pre-Release" ]; then
+          PRERELEASE_FLAG="--prerelease"
+        fi
+
+        echo "Creating release ${{ env.NEW_TAG }}..."
+        gh release create "${{ env.NEW_TAG }}" \
+          --title "${{ env.RELEASE_NAME }}" \
+          --notes-file release_body.md \
+          --target "${{ github.sha }}" \
+          $PRERELEASE_FLAG
 
     - name: Download Artifacts
       uses: actions/download-artifact@v5
