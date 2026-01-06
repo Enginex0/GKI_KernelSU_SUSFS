@@ -375,25 +375,24 @@ jobs:
     env:
       NEW_TAG: ${{ needs.release.outputs.new_tag }}
     steps:
-    - name: Download TheWildJames Artifacts
+    - name: Download Artifacts for TheWildJames
       uses: actions/download-artifact@v5
       with:
         path: ./downloaded-artifacts
-        pattern: '*-TheWildJames-AnyKernel3'
-
-    - name: Download Normal Artifacts
+        pattern: '6.1.145-android14-2025-09-TheWildJames-AnyKernel3'
+      continue-on-error: true
+      
+    
+    - name: Download Artifacts for Normal
       uses: actions/download-artifact@v5
       with:
         path: ./downloaded-artifacts
-        pattern: '*-Normal-AnyKernel3'
+        pattern: '6.1.145-android14-2025-09-Normal-AnyKernel3'
+      continue-on-error: true
 
     - name: Prepare Artifacts for DM
       run: |
         shopt -s nullglob
-        # Debug: List downloaded artifacts
-        echo "Listing downloaded artifacts:"
-        ls -R ./downloaded-artifacts || echo "No artifacts found"
-
         anykernel_dirs=(./downloaded-artifacts/*-AnyKernel3/)
 
         if [ ${#anykernel_dirs[@]} -eq 0 ]; then
@@ -406,6 +405,7 @@ jobs:
         # Create ZIPs for DM
         for dir in "${anykernel_dirs[@]}"; do
           artifact_name=$(basename "$dir")
+          
           echo "Zipping $artifact_name for DM..."
           (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" ./*) &
         done
