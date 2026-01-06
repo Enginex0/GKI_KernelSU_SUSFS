@@ -344,28 +344,34 @@ jobs:
       if:
       run: |+
         shopt -s nullglob
-        anykernel_dirs=(./downloaded-artifacts/*-AnyKernel3/)
+        mapfile -t anykernel_dirs < <(find ./downloaded-artifacts -maxdepth 2 -type d -name '*-AnyKernel3' -print)
+        mapfile -t anykernel_zips < <(find ./downloaded-artifacts -maxdepth 2 -type f -name '*-AnyKernel3*.zip' -print)
 
-        if [ ${#anykernel_dirs[@]} -eq 0 ]; then
+        if [ ${#anykernel_dirs[@]} -eq 0 ] && [ ${#anykernel_zips[@]} -eq 0 ]; then
           echo "No AnyKernel3 artifact directories found; skipping upload."
+          ls -al ./downloaded-artifacts || true
           exit 0
         fi
 
-        echo "Found ${#anykernel_dirs[@]} artifacts to process"
+        if [ ${#anykernel_dirs[@]} -gt 0 ]; then
+          echo "Found ${#anykernel_dirs[@]} directory artifact(s) to process"
+          for dir in "${anykernel_dirs[@]}"; do
+            artifact_name=$(basename "$dir")
+            echo "Creating ZIP for $artifact_name..."
+            (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" ./*) &
+          done
+          wait
+        fi
 
-        # Create all ZIPs in parallel
-        for dir in "${anykernel_dirs[@]}"; do
-          artifact_name=$(basename "$dir")
-          echo "Creating ZIP for $artifact_name..."
-          (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" ./*) &
+        for zip_path in "${anykernel_zips[@]}"; do
+          echo "Uploading $(basename "$zip_path")..."
+          gh release upload "${{ env.NEW_TAG }}" "$zip_path" --clobber
         done
-        wait
 
-        # Upload all ZIPs
         for dir in "${anykernel_dirs[@]}"; do
           artifact_name=$(basename "$dir")
           echo "Uploading ${artifact_name}.zip..."
-          gh release upload "${{ env.NEW_TAG }}" "${artifact_name}.zip" --clobber
+          gh release upload "${{ env.NEW_TAG }}" "$GITHUB_WORKSPACE/${artifact_name}.zip" --clobber
         done
 
   notify-actions:
@@ -391,22 +397,31 @@ jobs:
       if:
       run: |+
         shopt -s nullglob
-        anykernel_dirs=(./downloaded-artifacts/*-AnyKernel3/)
+        mapfile -t anykernel_dirs < <(find ./downloaded-artifacts -maxdepth 2 -type d -name '*-AnyKernel3' -print)
+        mapfile -t anykernel_zips < <(find ./downloaded-artifacts -maxdepth 2 -type f -name '*-AnyKernel3*.zip' -print)
 
-        if [ ${#anykernel_dirs[@]} -eq 0 ]; then
+        if [ ${#anykernel_dirs[@]} -eq 0 ] && [ ${#anykernel_zips[@]} -eq 0 ]; then
           echo "No AnyKernel3 artifact directories found; skipping upload."
+          ls -al ./downloaded-artifacts || true
           exit 0
         fi
 
-        echo "Found ${#anykernel_dirs[@]} artifacts to process"
+        if [ ${#anykernel_zips[@]} -gt 0 ]; then
+          for zip_path in "${anykernel_zips[@]}"; do
+            echo "Copying $(basename "$zip_path") to workspace root..."
+            cp -f "$zip_path" "$GITHUB_WORKSPACE/$(basename "$zip_path")"
+          done
+        fi
 
-        # Create all ZIPs in parallel
-        for dir in "${anykernel_dirs[@]}"; do
-          artifact_name=$(basename "$dir")
-          echo "Creating ZIP for $artifact_name..."
-          (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" ./*) &
-        done
-        wait
+        if [ ${#anykernel_dirs[@]} -gt 0 ]; then
+          echo "Found ${#anykernel_dirs[@]} directory artifact(s) to process"
+          for dir in "${anykernel_dirs[@]}"; do
+            artifact_name=$(basename "$dir")
+            echo "Creating ZIP for $artifact_name..."
+            (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" ./*) &
+          done
+          wait
+        fi
 
     - name: Send Telegram Notification
       if: inputs.release_type == 'Actions'
