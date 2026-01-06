@@ -375,44 +375,38 @@ jobs:
     env:
       NEW_TAG: ${{ needs.release.outputs.new_tag }}
     steps:
-    - name: Download Artifacts for TheWildJames
+    - name: Download TheWildJames Artifacts
       uses: actions/download-artifact@v5
       with:
         path: ./downloaded-artifacts
         pattern: '6.1.145-android14-2025-09-TheWildJames-AnyKernel3'
-      continue-on-error: true
-      
-    
-    - name: Download Artifacts for Normal
+
+    - name: Download Normal Artifacts
       uses: actions/download-artifact@v5
       with:
         path: ./downloaded-artifacts
         pattern: '6.1.145-android14-2025-09-Normal-AnyKernel3'
-      continue-on-error: true
 
-    - name: Prepare Artifacts for DM
-      run: |
+    - name: Setup Release Assets
+      if:
+      run: |+
         shopt -s nullglob
         anykernel_dirs=(./downloaded-artifacts/*-AnyKernel3/)
 
         if [ ${#anykernel_dirs[@]} -eq 0 ]; then
-          echo "No AnyKernel3 artifact directories found."
+          echo "No AnyKernel3 artifact directories found; skipping upload."
           exit 0
         fi
 
         echo "Found ${#anykernel_dirs[@]} artifacts to process"
 
-        # Create ZIPs for DM
+        # Create all ZIPs in parallel
         for dir in "${anykernel_dirs[@]}"; do
           artifact_name=$(basename "$dir")
-          
-          echo "Zipping $artifact_name for DM..."
+          echo "Creating ZIP for $artifact_name..."
           (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" ./*) &
         done
         wait
-
-        echo "Zipping complete. Created files:"
-        ls -lh "$GITHUB_WORKSPACE"/*.zip || echo "No zip files created"
 
     - name: Send Telegram Notification
       if: inputs.release_type == 'Actions'
@@ -452,7 +446,7 @@ jobs:
       run: |
         shopt -s nullglob
         # Check for TheWildJames and Normal artifacts
-        files=(./*TheWildJames*.zip ./*Normal*.zip)
+        files=(./*.zip)
         
         if [ ${#files[@]} -eq 0 ]; then
              echo "No zip files found for DM."
