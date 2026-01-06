@@ -379,15 +379,13 @@ jobs:
       uses: actions/download-artifact@v5
       with:
         path: ./downloaded-artifacts
-        pattern: '6.1.145-android14-2025-09-TheWildJames-AnyKernel3'
-      continue-on-error: true
+        pattern: '*-TheWildJames-AnyKernel3'
 
     - name: Download Normal Artifacts
       uses: actions/download-artifact@v5
       with:
         path: ./downloaded-artifacts
-        pattern: '6.1.145-android14-2025-09-Normal-AnyKernel3'
-      continue-on-error: true
+        pattern: '*-Normal-AnyKernel3'
 
     - name: Prepare Artifacts for DM
       run: |
@@ -409,7 +407,7 @@ jobs:
         for dir in "${anykernel_dirs[@]}"; do
           artifact_name=$(basename "$dir")
           echo "Zipping $artifact_name for DM..."
-          (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" .) &
+          (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" ./*) &
         done
         wait
 
@@ -469,7 +467,7 @@ jobs:
         for file in "${files[@]}"; do
           if [ -f "$file" ]; then
             echo "Sending $file to Telegram DM..."
-            curl -F chat_id="${{ secrets.TELEGRAM_USER_ID }}" \
+            curl -v -F chat_id="${{ secrets.TELEGRAM_USER_ID }}" \
                  -F document=@"$file" \
                  -F caption="📦 **Build**: $(basename "$file")" \
                  -F parse_mode="Markdown" \
