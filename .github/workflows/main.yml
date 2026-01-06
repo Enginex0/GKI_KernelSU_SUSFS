@@ -384,13 +384,13 @@ jobs:
     - name: Download TheWildJames Artifacts
       uses: actions/download-artifact@v5
       with:
-        path: ./downloaded-artifacts
+        path: ./downloaded-artifacts/6.1.145-android14-2025-09-TheWildJames-AnyKernel3
         pattern: '6.1.145-android14-2025-09-TheWildJames-AnyKernel3'
 
     - name: Download Normal Artifacts
       uses: actions/download-artifact@v5
       with:
-        path: ./downloaded-artifacts
+        path: ./downloaded-artifacts/6.1.145-android14-2025-09-Normal-AnyKernel3
         pattern: '6.1.145-android14-2025-09-Normal-AnyKernel3'
 
     - name: Setup Release Assets
