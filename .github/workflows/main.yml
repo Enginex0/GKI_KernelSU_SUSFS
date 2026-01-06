@@ -224,11 +224,14 @@ jobs:
     - build-a15-6-6
     - build-a16-6-12
     - build-custom
+    - build-lts
 
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_NAME: "!!TESTING!! GKI Kernels With KernelSU-Next & SUSFS v2.0.0 !!TESTING!!"
       RELEASE_BODY: ""
+    outputs:
+      new_tag: ${{ steps.tag.outputs.new_tag }}
     steps:
     - name: Free Disk Space
       if: true
@@ -365,29 +368,54 @@ jobs:
           gh release upload "${{ env.NEW_TAG }}" "${artifact_name}.zip" --clobber
         done
 
-    - name: Send Telegram Notification
-      if: inputs.release_type != 'Actions'
-      run: |
-        RELEASE_TYPE_TEXT=""
-        if [ "${{ inputs.release_type }}" == "Pre-Release" ]; then
-          RELEASE_TYPE_TEXT="🧪 *Pre-Release*"
-        else
-          RELEASE_TYPE_TEXT="🚀 *Release*"
-        fi
-
-        curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-          -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-          -F message_thread_id="${{ secrets.TELEGRAM_TOPIC_ID_GKI }}" \
-          -F text="
-          🌽 *New Kernel $RELEASE_TYPE_TEXT Uploaded*  
-          📦 *Repository:* [${{ github.repository }}](https://github.com/${{ github.repository }})  
-          ✏️ *Commit:* [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})  
-          [🔗 View GitHub Release](https://github.com/${{ github.repository }}/releases/tag/${{ env.NEW_TAG }})" \
-          -F parse_mode="Markdown"
-
   notify-actions:
     runs-on: ubuntu-latest
+    needs: [release]
+    if: always()
+    env:
+      NEW_TAG: ${{ needs.release.outputs.new_tag }}
     steps:
+    - name: Download TheWildJames Artifacts
+      uses: actions/download-artifact@v5
+      with:
+        path: ./downloaded-artifacts
+        pattern: '6.1.145-android14-2025-09-TheWildJames-AnyKernel3'
+      continue-on-error: true
+
+    - name: Download Normal Artifacts
+      uses: actions/download-artifact@v5
+      with:
+        path: ./downloaded-artifacts
+        pattern: '6.1.145-android14-2025-09-Normal-AnyKernel3'
+      continue-on-error: true
+
+    - name: Prepare Artifacts for DM
+      run: |
+        shopt -s nullglob
+        # Debug: List downloaded artifacts
+        echo "Listing downloaded artifacts:"
+        ls -R ./downloaded-artifacts || echo "No artifacts found"
+
+        anykernel_dirs=(./downloaded-artifacts/*-AnyKernel3/)
+
+        if [ ${#anykernel_dirs[@]} -eq 0 ]; then
+          echo "No AnyKernel3 artifact directories found."
+          exit 0
+        fi
+
+        echo "Found ${#anykernel_dirs[@]} artifacts to process"
+
+        # Create ZIPs for DM
+        for dir in "${anykernel_dirs[@]}"; do
+          artifact_name=$(basename "$dir")
+          echo "Zipping $artifact_name for DM..."
+          (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" .) &
+        done
+        wait
+
+        echo "Zipping complete. Created files:"
+        ls -lh "$GITHUB_WORKSPACE"/*.zip || echo "No zip files created"
+
     - name: Send Telegram Notification
       if: inputs.release_type == 'Actions'
       run: |
@@ -402,7 +430,7 @@ jobs:
           -F parse_mode="Markdown"
 
     - name: Send Telegram Notification
-      if: inputs.release_type != 'Actions'
+      if: inputs.release_type != 'Actions' && needs.release.result == 'success'
       run: |
         RELEASE_TYPE_TEXT=""
         if [ "${{ inputs.release_type }}" == "Pre-Release" ]; then
@@ -424,13 +452,26 @@ jobs:
     - name: DM Artifacts
       if: always()
       run: |
+        shopt -s nullglob
         # Check for TheWildJames and Normal artifacts
-        for file in ./*TheWildJames*.zip ./*Normal*.zip; do
+        files=(./*TheWildJames*.zip ./*Normal*.zip)
+        
+        if [ ${#files[@]} -eq 0 ]; then
+             echo "No zip files found for DM."
+             exit 0
+        fi
+        
+        if [ -z "${{ secrets.TELEGRAM_USER_ID }}" ]; then
+            echo "Error: TELEGRAM_USER_ID secret is not set."
+            exit 1
+        fi
+
+        for file in "${files[@]}"; do
           if [ -f "$file" ]; then
             echo "Sending $file to Telegram DM..."
             curl -F chat_id="${{ secrets.TELEGRAM_USER_ID }}" \
                  -F document=@"$file" \
-                 -F caption="📦 **Build**: $file" \
+                 -F caption="📦 **Build**: $(basename "$file")" \
                  -F parse_mode="Markdown" \
                  https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument
           fi
