@@ -399,19 +399,24 @@ jobs:
     - name: Download Artifacts
       uses: actions/download-artifact@v5
       with:
-        path: ./downloaded-artifacts
+        path: ./downloaded-artifacts/6.1.145-android14-2025-09-TheWildJames-AnyKernel3
         pattern: 6.1.145-android14-2025-09-TheWildJames-AnyKernel3
       continue-on-error: true
 
     - name: Download Artifacts
       uses: actions/download-artifact@v5
       with:
-        path: ./downloaded-artifacts
+        path: ./downloaded-artifacts/6.1.145-android14-2025-09-Normal-AnyKernel3
         pattern: 6.1.145-android14-2025-09-Normal-AnyKernel3
       continue-on-error: true
 
     - name: Upload Release Assets
       run: |+
+        ls -a
+        ls -a ./downloaded-artifacts/
+        ls -a ./downloaded-artifacts/6.1.145-android14-2025-09-TheWildJames-AnyKernel3
+        ls -a ./downloaded-artifacts/6.1.145-android14-2025-09-Normal-AnyKernel3
+        
         shopt -s nullglob
         mapfile -t anykernel_dirs < <(find ./downloaded-artifacts -maxdepth 2 -type d -name '*-AnyKernel3' -print)
 
