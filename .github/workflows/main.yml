@@ -341,7 +341,6 @@ jobs:
         pattern: '*-AnyKernel3'
 
     - name: Upload Release Assets
-      if:
       run: |+
         shopt -s nullglob
         mapfile -t anykernel_dirs < <(find ./downloaded-artifacts -maxdepth 2 -type d -name '*-AnyKernel3' -print)
@@ -381,20 +380,29 @@ jobs:
     env:
       NEW_TAG: ${{ needs.release.outputs.new_tag }}
     steps:
-    - name: Download TheWildJames Artifacts
+    - name: Free Disk Space
+      if: true
+      uses: endersonmenezes/free-disk-space@v3  # Use @main for latest, @v3 for stable
+      with:
+        remove_android: true
+        remove_dotnet: true
+        remove_haskell: true
+        remove_tool_cache: true
+        remove_swap: true
+        remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
+        remove_packages_one_command: true
+        remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/lib/node_modules /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
+        rm_cmd: "rmz"  # Use 'rmz' for faster deletion (default: 'rm')
+        rmz_version: "3.1.1"  # Required when rm_cmd is 'rmz'
+        testing: false
+        
+    - name: Download Artifacts
       uses: actions/download-artifact@v5
       with:
-        path: ./downloaded-artifacts/6.1.145-android14-2025-09-TheWildJames-AnyKernel3
-        pattern: '6.1.145-android14-2025-09-TheWildJames-AnyKernel3'
+        path: ./downloaded-artifacts
+        pattern: '*-AnyKernel3'
 
-    - name: Download Normal Artifacts
-      uses: actions/download-artifact@v5
-      with:
-        path: ./downloaded-artifacts/6.1.145-android14-2025-09-Normal-AnyKernel3
-        pattern: '6.1.145-android14-2025-09-Normal-AnyKernel3'
-
-    - name: Setup Release Assets
-      if:
+    - name: Upload Release Assets
       run: |+
         shopt -s nullglob
         mapfile -t anykernel_dirs < <(find ./downloaded-artifacts -maxdepth 2 -type d -name '*-AnyKernel3' -print)
@@ -404,13 +412,6 @@ jobs:
           echo "No AnyKernel3 artifact directories found; skipping upload."
           ls -al ./downloaded-artifacts || true
           exit 0
-        fi
-
-        if [ ${#anykernel_zips[@]} -gt 0 ]; then
-          for zip_path in "${anykernel_zips[@]}"; do
-            echo "Copying $(basename "$zip_path") to workspace root..."
-            cp -f "$zip_path" "$GITHUB_WORKSPACE/$(basename "$zip_path")"
-          done
         fi
 
         if [ ${#anykernel_dirs[@]} -gt 0 ]; then
@@ -460,26 +461,22 @@ jobs:
       if: always()
       run: |
         shopt -s nullglob
-        # Check for TheWildJames and Normal artifacts
-        files=(./*.zip)
-        
+        files=("$GITHUB_WORKSPACE"/*.zip)
+
         if [ ${#files[@]} -eq 0 ]; then
-             echo "No zip files found for DM."
-             exit 0
+            echo "No ZIP files found for DM."
+            exit 0
         fi
-        
+
         if [ -z "${{ secrets.TELEGRAM_USER_ID }}" ]; then
             echo "Error: TELEGRAM_USER_ID secret is not set."
             exit 1
         fi
 
         for file in "${files[@]}"; do
-          if [ -f "$file" ]; then
-            echo "Sending $file to Telegram DM..."
+            echo "Sending $(basename "$file") to Telegram DM..."
             curl -v -F chat_id="${{ secrets.TELEGRAM_USER_ID }}" \
-                 -F document=@"$file" \
-                 -F caption="📦 **Build**: $(basename "$file")" \
-                 -F parse_mode="Markdown" \
-                 https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument
-          fi
+                -F document=@"$file" \
+                -F caption="📦 Build: $(basename "$file")" \
+                https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument
         done
