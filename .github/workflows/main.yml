@@ -344,32 +344,17 @@ jobs:
       run: |+
         shopt -s nullglob
         mapfile -t anykernel_dirs < <(find ./downloaded-artifacts -maxdepth 2 -type d -name '*-AnyKernel3' -print)
-        mapfile -t anykernel_zips < <(find ./downloaded-artifacts -maxdepth 2 -type f -name '*-AnyKernel3*.zip' -print)
-
-        if [ ${#anykernel_dirs[@]} -eq 0 ] && [ ${#anykernel_zips[@]} -eq 0 ]; then
-          echo "No AnyKernel3 artifact directories found; skipping upload."
-          ls -al ./downloaded-artifacts || true
-          exit 0
-        fi
-
-        if [ ${#anykernel_dirs[@]} -gt 0 ]; then
-          echo "Found ${#anykernel_dirs[@]} directory artifact(s) to process"
-          for dir in "${anykernel_dirs[@]}"; do
-            artifact_name=$(basename "$dir")
-            echo "Creating ZIP for $artifact_name..."
-            (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" ./*) &
-          done
-          wait
-        fi
-
-        for zip_path in "${anykernel_zips[@]}"; do
-          echo "Uploading $(basename "$zip_path")..."
-          gh release upload "${{ env.NEW_TAG }}" "$zip_path" --clobber
-        done
 
         for dir in "${anykernel_dirs[@]}"; do
           artifact_name=$(basename "$dir")
-          echo "Uploading ${artifact_name}.zip..."
+          echo "Creating ZIP for $artifact_name..."
+          (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" ./*) &
+        done
+        wait
+
+        for dir in "${anykernel_dirs[@]}"; do
+          artifact_name=$(basename "$dir")
+          echo "Uploading 2 ${artifact_name}.zip..."
           gh release upload "${{ env.NEW_TAG }}" "$GITHUB_WORKSPACE/${artifact_name}.zip" --clobber
         done
 
@@ -412,11 +397,6 @@ jobs:
 
     - name: Upload Release Assets
       run: |+
-        ls -a
-        ls -a ./downloaded-artifacts/
-        ls -a ./downloaded-artifacts/6.1.145-android14-2025-09-TheWildJames-AnyKernel3 || echo "6.1.145-android14-2025-09-TheWildJames-AnyKernel3 Not Found"
-        ls -a ./downloaded-artifacts/6.1.145-android14-2025-09-Normal-AnyKernel3 || echo "6.1.145-android14-2025-09-Normal-AnyKernel3 Not Found"
-        
         shopt -s nullglob
         mapfile -t anykernel_dirs < <(find ./downloaded-artifacts -maxdepth 2 -type d -name '*-AnyKernel3' -print)
 
@@ -425,6 +405,7 @@ jobs:
           echo "Creating ZIP for $artifact_name..."
           (cd "$dir" && zip -r -q -9 "$GITHUB_WORKSPACE/${artifact_name}.zip" ./*) &
         done
+        wait
 
     - name: Send Telegram Notification
       if: inputs.release_type == 'Actions'
