@@ -414,8 +414,8 @@ jobs:
       run: |+
         ls -a
         ls -a ./downloaded-artifacts/
-        ls -a ./downloaded-artifacts/6.1.145-android14-2025-09-TheWildJames-AnyKernel3
-        ls -a ./downloaded-artifacts/6.1.145-android14-2025-09-Normal-AnyKernel3
+        ls -a ./downloaded-artifacts/6.1.145-android14-2025-09-TheWildJames-AnyKernel3 || echo "6.1.145-android14-2025-09-TheWildJames-AnyKernel3 Not Found"
+        ls -a ./downloaded-artifacts/6.1.145-android14-2025-09-Normal-AnyKernel3 || echo "6.1.145-android14-2025-09-Normal-AnyKernel3 Not Found"
         
         shopt -s nullglob
         mapfile -t anykernel_dirs < <(find ./downloaded-artifacts -maxdepth 2 -type d -name '*-AnyKernel3' -print)
