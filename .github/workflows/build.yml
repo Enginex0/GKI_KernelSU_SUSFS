@@ -431,7 +431,7 @@ jobs:
         esac
 
     - name: Apply Performance Patches
-      if: true
+      if: false
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
         MIN_VERSION="5.16"
@@ -451,7 +451,7 @@ jobs:
         fi
 
     - name: Add BBG
-      if: true
+      if: false
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         curl -LSs https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
