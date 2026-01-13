@@ -465,41 +465,28 @@ jobs:
         # Fix fs/namei.c include if not applied
         if ! grep -q "nomount.h" fs/namei.c; then
           echo "Adding NoMount include to fs/namei.c"
-          sed -i '/#include <linux\/uaccess.h>/a #ifdef CONFIG_NOMOUNT\n#include <linux\/nomount.h>\n#endif' fs/namei.c
+          sed -i '/#include <linux\/uaccess.h>/a #ifdef CONFIG_NOMOUNT' fs/namei.c
+          sed -i '/#ifdef CONFIG_NOMOUNT/a #include <linux\/nomount.h>' fs/namei.c
+          sed -i '/#include <linux\/nomount.h>/a #endif' fs/namei.c
         fi
 
         # Check if NoMount hooks exist in readdir.c (they should be added after SUSFS hooks)
-        # The patch may fail here due to SUSFS conflicts - manual merge needed
         if grep -q "NOMOUNT_MAGIC_POS\|nomount_inject" fs/readdir.c; then
           echo "SUCCESS: NoMount hooks present in fs/readdir.c"
         else
-          echo "WARNING: NoMount hooks may need manual merge in fs/readdir.c due to SUSFS conflicts"
-          echo "Attempting automatic merge..."
-
-          # Add NoMount hooks to getdents64 syscall after SUSFS hooks
-          # Find the SYSCALL_DEFINE3(getdents64, ...) function and add hooks
-          # This is a best-effort automatic merge
-
-          # Add variable declaration after 'int error;'
-          sed -i '/SYSCALL_DEFINE3(getdents64/,/^{/{
-            /int error;/a #ifdef CONFIG_NOMOUNT\
-	int initial_count = count;\
-#endif
-          }' fs/readdir.c || true
+          echo "WARNING: NoMount hooks may not be fully applied due to SUSFS conflicts"
+          echo "Build may fail - manual patch merge may be required"
         fi
 
         # Ensure CONFIG_NOMOUNT is in Kconfig and Makefile
         if ! grep -q "CONFIG_NOMOUNT" fs/Kconfig; then
           echo "Adding CONFIG_NOMOUNT to fs/Kconfig"
-          cat >> fs/Kconfig << 'KCONFIG'
-
-config NOMOUNT
-	bool "NoMount VFS hiding support"
-	default y
-	help
-	  Enable NoMount for VFS mount hiding and virtual directory injection.
-	  This allows hiding mount points and injecting virtual directory entries.
-KCONFIG
+          echo "" >> fs/Kconfig
+          echo "config NOMOUNT" >> fs/Kconfig
+          echo "	bool \"NoMount VFS hiding support\"" >> fs/Kconfig
+          echo "	default y" >> fs/Kconfig
+          echo "	help" >> fs/Kconfig
+          echo "	  Enable NoMount for VFS mount hiding." >> fs/Kconfig
         fi
 
         if ! grep -q "nomount.o" fs/Makefile; then
