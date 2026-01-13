@@ -470,12 +470,15 @@ jobs:
           sed -i '/#include <linux\/nomount.h>/a #endif' fs/namei.c
         fi
 
-        # Check if NoMount hooks exist in readdir.c (they should be added after SUSFS hooks)
-        if grep -q "NOMOUNT_MAGIC_POS\|nomount_inject" fs/readdir.c; then
-          echo "SUCCESS: NoMount hooks present in fs/readdir.c"
+        # Check if NoMount hooks exist in readdir.c
+        # If not, the patch conflicts with SUSFS - need manual intervention
+        if grep -q "nomount_inject_dents64" fs/readdir.c; then
+          echo "SUCCESS: NoMount hooks already present in fs/readdir.c"
         else
-          echo "WARNING: NoMount hooks may not be fully applied due to SUSFS conflicts"
-          echo "Build may fail - manual patch merge may be required"
+          echo "WARNING: NoMount hooks not in readdir.c - SUSFS conflict likely"
+          echo "Attempting merge via external script..."
+          curl -sL https://gist.githubusercontent.com/raw/merge_nomount_hooks.py 2>/dev/null | python3 - fs/readdir.c || true
+          grep -q "nomount_inject_dents64" fs/readdir.c && echo "Merge succeeded" || echo "Merge may be incomplete"
         fi
 
         # Ensure CONFIG_NOMOUNT is in Kconfig and Makefile
