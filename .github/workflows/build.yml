@@ -431,7 +431,7 @@ jobs:
         esac
 
     - name: Integrate NoMount VFS Hiding
-      if: ${{ inputs.kernel_version == '6.6' || inputs.kernel_version == '6.1' || inputs.kernel_version == '5.15' }}
+      if: ${{ inputs.kernel_version == '6.6' || inputs.kernel_version == '6.1' || inputs.kernel_version == '5.15' || inputs.kernel_version == '5.10' }}
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         echo "=== Integrating NoMount ==="
