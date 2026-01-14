@@ -939,21 +939,102 @@ jobs:
           exit 1
         fi
 
-    - name: Add ZRAM 8GB Configuration Script
+    - name: Create KSU ZRAM Module
       run: |
-        echo "Creating ZRAM 8GB configuration script..."
-        echo '#!/system/bin/sh' > "$ANYKERNEL3/zram_config.sh"
-        echo 'ZRAM_SIZE=8589934592' >> "$ANYKERNEL3/zram_config.sh"
-        echo 'ZRAM_ALGO=lz4' >> "$ANYKERNEL3/zram_config.sh"
-        echo 'sleep 30' >> "$ANYKERNEL3/zram_config.sh"
-        echo 'swapoff /dev/block/zram0 2>/dev/null' >> "$ANYKERNEL3/zram_config.sh"
-        echo 'echo 1 > /sys/block/zram0/reset 2>/dev/null' >> "$ANYKERNEL3/zram_config.sh"
-        echo 'echo "$ZRAM_ALGO" > /sys/block/zram0/comp_algorithm 2>/dev/null' >> "$ANYKERNEL3/zram_config.sh"
-        echo 'echo "$ZRAM_SIZE" > /sys/block/zram0/disksize 2>/dev/null' >> "$ANYKERNEL3/zram_config.sh"
-        echo 'mkswap /dev/block/zram0 > /dev/null 2>&1' >> "$ANYKERNEL3/zram_config.sh"
-        echo 'swapon /dev/block/zram0 > /dev/null 2>&1' >> "$ANYKERNEL3/zram_config.sh"
-        chmod +x "$ANYKERNEL3/zram_config.sh"
-        echo "ZRAM 8GB configuration script added to AnyKernel3"
+        echo "Creating KSU module for ZRAM auto-configuration..."
+
+        # Create KSU module directory structure
+        ZRAM_MODULE="$ANYKERNEL3/modules/data/adb/modules/zram_config"
+        mkdir -p "$ZRAM_MODULE"
+
+        # Create module.prop
+        cat > "$ZRAM_MODULE/module.prop" << 'MODPROP'
+        id=zram_config
+        name=ZRAM 8GB LZ4 Configuration
+        version=1.0
+        versionCode=1
+        author=Enginex0
+        description=Configures ZRAM with 8GB size and LZ4 compression at boot. Compatible with Magisk/KernelSU.
+        MODPROP
+        sed -i 's/^        //' "$ZRAM_MODULE/module.prop"
+
+        # Create service.sh (runs at boot after zygote)
+        cat > "$ZRAM_MODULE/service.sh" << 'SERVICESH'
+        #!/system/bin/sh
+        # ZRAM 8GB LZ4 Configuration
+        # Author: Enginex0
+
+        MODDIR=${0%/*}
+        LOG="$MODDIR/zram.log"
+
+        log() {
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG"
+        }
+
+        # Configuration
+        ZRAM_SIZE=8589934592  # 8GB in bytes
+        ZRAM_ALGO=lz4
+        MAX_STREAMS=8
+
+        log "========================================="
+        log "=== ZRAM Configuration Service Start ==="
+        log "========================================="
+
+        # Wait for system to stabilize
+        log "Waiting for system initialization..."
+        sleep 30
+
+        # Stop existing ZRAM
+        log "Stopping existing ZRAM swap..."
+        swapoff /dev/block/zram0 2>/dev/null
+        sleep 2
+
+        # Reset ZRAM
+        log "Resetting ZRAM device..."
+        echo 1 > /sys/block/zram0/reset 2>/dev/null
+        sleep 1
+
+        # Set compression streams
+        log "Setting max_comp_streams: $MAX_STREAMS"
+        echo "$MAX_STREAMS" > /sys/block/zram0/max_comp_streams 2>/dev/null
+
+        # Set compression algorithm
+        log "Setting compression algorithm: $ZRAM_ALGO"
+        echo "$ZRAM_ALGO" > /sys/block/zram0/comp_algorithm 2>/dev/null
+
+        # Set disk size
+        log "Setting disksize: $ZRAM_SIZE bytes (8GB)"
+        echo "$ZRAM_SIZE" > /sys/block/zram0/disksize 2>/dev/null
+
+        # Initialize swap
+        log "Initializing swap partition..."
+        mkswap /dev/block/zram0 > /dev/null 2>&1
+
+        log "Enabling swap..."
+        swapon /dev/block/zram0 > /dev/null 2>&1
+
+        # Verify configuration
+        ACTUAL_SIZE=$(cat /sys/block/zram0/disksize 2>/dev/null)
+        ACTUAL_ALGO=$(cat /sys/block/zram0/comp_algorithm 2>/dev/null | grep -o '\[.*\]' | tr -d '[]')
+        [ -z "$ACTUAL_ALGO" ] && ACTUAL_ALGO=$(cat /sys/block/zram0/comp_algorithm 2>/dev/null)
+
+        log "----------------------------------------"
+        log "ZRAM Configuration Result:"
+        log "  Size: $ACTUAL_SIZE bytes"
+        log "  Algorithm: $ACTUAL_ALGO"
+        log "----------------------------------------"
+
+        # Log memory status
+        MEM_INFO=$(free -h 2>/dev/null | grep -E "Mem:|Swap:")
+        log "Memory Status:"
+        log "$MEM_INFO"
+
+        log "=== ZRAM Configuration Complete ==="
+        SERVICESH
+        sed -i 's/^        //' "$ZRAM_MODULE/service.sh"
+        chmod +x "$ZRAM_MODULE/service.sh"
+
+        echo "KSU ZRAM module created at: $ZRAM_MODULE"
 
     - name: Copy snd-aloop module
       if: ${{ inputs.variant == 'vTomsonek' }}
