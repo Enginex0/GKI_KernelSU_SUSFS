@@ -533,6 +533,7 @@ jobs:
         echo "=== NoMount integration complete ==="
 
     - name: Upgrade LZ4 to v1.10.0 with ARM64 NEON
+      if: false  # DISABLED - caused boot failure
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
         echo "=== Upgrading LZ4 to v1.10.0 ==="
@@ -698,18 +699,18 @@ jobs:
         CONFIG_IP_SET_HASH_NETIFACE=y
         CONFIG_IP_SET_LIST_SET=y
 
-        # ZRAM/LZ4 Compression Support (built-in with 8GB)
-        CONFIG_ZSMALLOC=y
-        CONFIG_ZRAM=y
-        CONFIG_ZRAM_WRITEBACK=y
-        CONFIG_CRYPTO_LZ4=y
-        CONFIG_CRYPTO_LZ4HC=y
+        # ZRAM/LZ4 Compression Support - DISABLED (caused boot failure)
+        # CONFIG_ZSMALLOC=y
+        # CONFIG_ZRAM=y
+        # CONFIG_ZRAM_WRITEBACK=y
+        # CONFIG_CRYPTO_LZ4=y
+        # CONFIG_CRYPTO_LZ4HC=y
 
         EOF
 
-        # Ensure ZRAM and ZSMALLOC are built-in
-        sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "${{ env.DEFCONFIG }}"
-        sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "${{ env.DEFCONFIG }}"
+        # Ensure ZRAM and ZSMALLOC are built-in - DISABLED
+        # sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "${{ env.DEFCONFIG }}"
+        # sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "${{ env.DEFCONFIG }}"
 
         echo "Checking if configs were applied..."
         if grep -q "CONFIG_KSU=y" "${{ env.DEFCONFIG }}" && grep -q "CONFIG_KSU_SUSFS=y" "${{ env.DEFCONFIG }}" && grep -q "CONFIG_KPROBES=y" "${{ env.DEFCONFIG }}"; then
@@ -943,6 +944,7 @@ jobs:
         fi
 
     - name: Create KSU ZRAM Module
+      if: false  # DISABLED - LZ4/ZRAM caused boot failure
       run: |
         echo "Creating KSU module for ZRAM auto-configuration..."
 
