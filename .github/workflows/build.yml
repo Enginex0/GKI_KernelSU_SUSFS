@@ -213,7 +213,8 @@ jobs:
     - name: Clone & Apply SUSFS Patches for KernelSU Variants
       run: |
         SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
-        git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
+        # Use Enginex0 fork with SUS_PROC process hiding support
+        git clone https://github.com/Enginex0/susfs4ksu.git -b "$SUSFS_BRANCH"
 
         case "${{ inputs.ksu_variant }}" in
           WKSU)
@@ -226,6 +227,13 @@ jobs:
             cp "$SUSFS4KSU/kernel_patches/include/linux/"* "$KERNEL_ROOT/common/include/linux/"
             cp $SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./
             patch -p1 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
+
+            # Apply SUS_PROC procfs hook patch for process hiding
+            if [ -f "$SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch" ]; then
+              cp $SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch ./
+              patch -p1 --fuzz=3 < 50_add_susfs_sus_proc_hooks.patch || true
+              echo "SUS_PROC procfs hooks applied"
+            fi
 
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
               if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
@@ -510,6 +518,7 @@ jobs:
         # KernelSU Configuration
         CONFIG_KSU=y
         CONFIG_KSU_SUSFS=y
+        CONFIG_KSU_SUSFS_SUS_PROC=y
 
         # Mountify Support
         CONFIG_TMPFS_XATTR=y
