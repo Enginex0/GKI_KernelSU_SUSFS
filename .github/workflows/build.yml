@@ -695,17 +695,17 @@ jobs:
         CONFIG_IP_SET_HASH_NETIFACE=y
         CONFIG_IP_SET_LIST_SET=y
 
-        # ZRAM/LZ4 Compression Support (keep ZRAM as module for FurLC/ZRAM-Module compatibility)
+        # ZRAM/LZ4 Compression Support (built-in with 8GB)
         CONFIG_ZSMALLOC=y
+        CONFIG_ZRAM=y
+        CONFIG_ZRAM_WRITEBACK=y
+        CONFIG_CRYPTO_LZ4=y
         CONFIG_CRYPTO_LZ4HC=y
 
         EOF
 
-        # Keep ZRAM as module if already set, or add it
-        if ! grep -q "CONFIG_ZRAM" "${{ env.DEFCONFIG }}"; then
-          echo "CONFIG_ZRAM=m" >> "${{ env.DEFCONFIG }}"
-        fi
-        # Ensure ZSMALLOC is built-in (required for ZRAM)
+        # Ensure ZRAM and ZSMALLOC are built-in
+        sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "${{ env.DEFCONFIG }}"
         sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "${{ env.DEFCONFIG }}"
 
         echo "Checking if configs were applied..."
@@ -938,7 +938,41 @@ jobs:
           echo "Error: Image file not found in any expected location"
           exit 1
         fi
-    
+
+    - name: Add ZRAM 8GB Configuration Script
+      run: |
+        # Create post-boot ZRAM configuration script (8GB = 8589934592 bytes)
+        cat > "$ANYKERNEL3/zram_config.sh" << 'ZRAMEOF'
+#!/system/bin/sh
+# ZRAM 8GB Configuration Script
+# Runs at boot to configure ZRAM with 8GB size and LZ4 compression
+
+ZRAM_SIZE=8589934592  # 8GB in bytes
+ZRAM_ALGO=lz4
+
+sleep 30  # Wait for system to stabilize
+
+# Stop existing ZRAM
+swapoff /dev/block/zram0 2>/dev/null
+
+# Reset ZRAM
+echo 1 > /sys/block/zram0/reset 2>/dev/null
+
+# Configure compression algorithm
+echo "$ZRAM_ALGO" > /sys/block/zram0/comp_algorithm 2>/dev/null
+
+# Set disk size (8GB)
+echo "$ZRAM_SIZE" > /sys/block/zram0/disksize 2>/dev/null
+
+# Initialize swap
+mkswap /dev/block/zram0 > /dev/null 2>&1
+swapon /dev/block/zram0 > /dev/null 2>&1
+
+echo "ZRAM configured: $(cat /sys/block/zram0/disksize) bytes with $(cat /sys/block/zram0/comp_algorithm)"
+ZRAMEOF
+        chmod +x "$ANYKERNEL3/zram_config.sh"
+        echo "ZRAM 8GB configuration script added to AnyKernel3"
+
     - name: Copy snd-aloop module
       if: ${{ inputs.variant == 'vTomsonek' }}
       run: |
