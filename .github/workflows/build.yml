@@ -213,19 +213,31 @@ jobs:
     - name: Clone & Apply SUSFS Patches for KernelSU Variants
       run: |
         SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
-        git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
+        # Use Enginex0 fork with SUS_PROC process hiding support
+        git clone https://github.com/Enginex0/susfs4ksu.git -b "$SUSFS_BRANCH"
 
         case "${{ inputs.ksu_variant }}" in
           WKSU)
             SUSFS_VERSION="2.0.0"
             cd "$KERNEL_ROOT/Wild_KSU"
-            echo "Nothing to fix for WKSU"
+
+            # Add SUS_PROC to Wild_KSU Kconfig
+            if ! grep -q "KSU_SUSFS_SUS_PROC" kernel/Kconfig; then
+              sed -i 's/config KSU_SUSFS_SUS_MAP/config KSU_SUSFS_SUS_PROC\n    bool "Hide processes from proc"\n    depends on KSU_SUSFS\n    default y\n\nconfig KSU_SUSFS_SUS_MAP/' kernel/Kconfig
+              echo "SUS_PROC added to Wild_KSU Kconfig"
+            fi
 
             cd "$KERNEL_ROOT/common"
             cp "$SUSFS4KSU/kernel_patches/fs/"* "$KERNEL_ROOT/common/fs/"
             cp "$SUSFS4KSU/kernel_patches/include/linux/"* "$KERNEL_ROOT/common/include/linux/"
             cp $SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./
             patch -p1 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
+
+            # Apply SUS_PROC procfs hook patch for ksud hiding
+            if [ -f "$SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch" ]; then
+              patch -p1 --fuzz=3 < "$SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch" || true
+              echo "SUS_PROC procfs hooks applied"
+            fi
 
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
               if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
@@ -585,6 +597,7 @@ jobs:
         # KernelSU Configuration
         CONFIG_KSU=y
         CONFIG_KSU_SUSFS=y
+        CONFIG_KSU_SUSFS_SUS_PROC=y
 
         # Mountify Support
         CONFIG_TMPFS_XATTR=y
