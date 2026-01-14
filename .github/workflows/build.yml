@@ -941,35 +941,17 @@ jobs:
 
     - name: Add ZRAM 8GB Configuration Script
       run: |
-        # Create post-boot ZRAM configuration script (8GB = 8589934592 bytes)
-        cat > "$ANYKERNEL3/zram_config.sh" << 'ZRAMEOF'
-#!/system/bin/sh
-# ZRAM 8GB Configuration Script
-# Runs at boot to configure ZRAM with 8GB size and LZ4 compression
-
-ZRAM_SIZE=8589934592  # 8GB in bytes
-ZRAM_ALGO=lz4
-
-sleep 30  # Wait for system to stabilize
-
-# Stop existing ZRAM
-swapoff /dev/block/zram0 2>/dev/null
-
-# Reset ZRAM
-echo 1 > /sys/block/zram0/reset 2>/dev/null
-
-# Configure compression algorithm
-echo "$ZRAM_ALGO" > /sys/block/zram0/comp_algorithm 2>/dev/null
-
-# Set disk size (8GB)
-echo "$ZRAM_SIZE" > /sys/block/zram0/disksize 2>/dev/null
-
-# Initialize swap
-mkswap /dev/block/zram0 > /dev/null 2>&1
-swapon /dev/block/zram0 > /dev/null 2>&1
-
-echo "ZRAM configured: $(cat /sys/block/zram0/disksize) bytes with $(cat /sys/block/zram0/comp_algorithm)"
-ZRAMEOF
+        echo "Creating ZRAM 8GB configuration script..."
+        echo '#!/system/bin/sh' > "$ANYKERNEL3/zram_config.sh"
+        echo 'ZRAM_SIZE=8589934592' >> "$ANYKERNEL3/zram_config.sh"
+        echo 'ZRAM_ALGO=lz4' >> "$ANYKERNEL3/zram_config.sh"
+        echo 'sleep 30' >> "$ANYKERNEL3/zram_config.sh"
+        echo 'swapoff /dev/block/zram0 2>/dev/null' >> "$ANYKERNEL3/zram_config.sh"
+        echo 'echo 1 > /sys/block/zram0/reset 2>/dev/null' >> "$ANYKERNEL3/zram_config.sh"
+        echo 'echo "$ZRAM_ALGO" > /sys/block/zram0/comp_algorithm 2>/dev/null' >> "$ANYKERNEL3/zram_config.sh"
+        echo 'echo "$ZRAM_SIZE" > /sys/block/zram0/disksize 2>/dev/null' >> "$ANYKERNEL3/zram_config.sh"
+        echo 'mkswap /dev/block/zram0 > /dev/null 2>&1' >> "$ANYKERNEL3/zram_config.sh"
+        echo 'swapon /dev/block/zram0 > /dev/null 2>&1' >> "$ANYKERNEL3/zram_config.sh"
         chmod +x "$ANYKERNEL3/zram_config.sh"
         echo "ZRAM 8GB configuration script added to AnyKernel3"
 
