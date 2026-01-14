@@ -211,6 +211,18 @@ jobs:
               curl -LSs "https://raw.githubusercontent.com/rsuntk/KernelSU/main/kernel/setup.sh" | bash -s main
             fi
             ;;
+          ReSuki)
+            # ReSukiSU - Pin to latest stable tag for reliability
+            curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -
+            cd "$KERNEL_ROOT/KernelSU"
+            LATEST_TAG=$(git describe --abbrev=0 --tags 2>/dev/null || echo "main")
+            if [[ "$LATEST_TAG" != "main" ]]; then
+              git checkout "$LATEST_TAG"
+              echo "ReSukiSU: Checked out tag $LATEST_TAG"
+            else
+              echo "ReSukiSU: Using main branch (no tags found)"
+            fi
+            ;;
         esac
 
     - name: Clone & Apply SUSFS Patches for KernelSU Variants
@@ -454,6 +466,69 @@ jobs:
             cd "$KERNEL_ROOT/KernelSU"
             cp "$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" .
             patch -p1 < 10_enable_susfs_for_ksu.patch
+            ;;
+          ReSuki)
+            # ReSukiSU SUSFS Integration
+            SUSFS_VERSION="2.0.0"
+            echo "=== Applying SUSFS to ReSukiSU ==="
+
+            # Apply ReSukiSU-specific SUSFS integration patch
+            cd "$KERNEL_ROOT/KernelSU"
+            if [ -f "$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_resukisu.patch" ]; then
+              cp "$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_resukisu.patch" .
+              patch -p1 --fuzz=3 < 10_enable_susfs_for_resukisu.patch || true
+              echo "ReSukiSU SUSFS integration patch applied"
+            else
+              echo "WARNING: ReSukiSU-specific patch not found, using generic patch"
+              cp "$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" .
+              patch -p1 --fuzz=3 < 10_enable_susfs_for_ksu.patch || true
+            fi
+
+            # Copy SUSFS kernel files
+            cd "$KERNEL_ROOT/common"
+            cp "$SUSFS4KSU/kernel_patches/fs/susfs.c" "$KERNEL_ROOT/common/fs/" || true
+            cp "$SUSFS4KSU/kernel_patches/include/linux/susfs.h" "$KERNEL_ROOT/common/include/linux/" || true
+            cp "$SUSFS4KSU/kernel_patches/include/linux/susfs_def.h" "$KERNEL_ROOT/common/include/linux/" || true
+
+            # Apply main SUSFS patch for this kernel version
+            if [ -f "$SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch" ]; then
+              cp "$SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch" ./
+              patch -p1 < "50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch" || true
+              echo "Main SUSFS patch applied"
+            fi
+
+            # Apply SUS_PROC procfs hook patch for ksud hiding
+            if [ -f "$SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch" ]; then
+              patch -p1 --fuzz=3 < "$SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch" || true
+              echo "SUS_PROC procfs hooks applied"
+            fi
+
+            # Apply Unicode security filter hooks
+            if [ -f "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" ]; then
+              patch -p1 --fuzz=3 < "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" || true
+              echo "Unicode security filter hooks applied"
+            fi
+
+            # Apply version-specific fixes (same as WKSU)
+            if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
+              if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
+                sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c || true
+              fi
+              if [[ "$ACTUAL_SUBLEVEL" -le 117 ]]; then
+                if [ -f "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/a12-5.10/fdinfo.c.patch" ]; then
+                  cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/a12-5.10/fdinfo.c.patch" ./
+                  patch -p1 < fdinfo.c.patch || true
+                fi
+              fi
+              if [[ "$ACTUAL_SUBLEVEL" -le 43 ]]; then
+                if [ -f "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/a12-5.10/base.c.patch" ]; then
+                  cp "$KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/a12-5.10/base.c.patch" ./
+                  patch -p1 < base.c.patch || true
+                fi
+              fi
+            fi
+
+            echo "=== ReSukiSU SUSFS integration complete ==="
             ;;
         esac
 
@@ -732,6 +807,19 @@ jobs:
 
         echo "Contents of ${{ env.DEFCONFIG }}:"
         cat "${{ env.DEFCONFIG }}"
+
+    - name: Configure ReSukiSU-Specific Features
+      if: inputs.ksu_variant == 'ReSuki'
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        echo "=== Adding ReSukiSU-specific configs ==="
+        cat >> "${{ env.DEFCONFIG }}" << 'EOF'
+
+        # ReSukiSU-specific Features
+        CONFIG_KSU_MANUAL_SU=y
+        CONFIG_KPM=y
+        EOF
+        echo "ReSukiSU features (Manual SU + KPM) enabled"
 
     - name: Configure Audio Modules
       if: inputs.variant == 'Hakan'
