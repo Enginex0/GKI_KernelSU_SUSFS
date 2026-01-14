@@ -795,8 +795,12 @@ jobs:
     - name: Change Kernel Name
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        #Wild to Kernel Version (replace last instance only)
-        if [[ "${{ inputs.kernel_version }}" == "5."* ]] || [[ "${{ inputs.kernel_version }}" == "6.1" ]]; then
+        # Spoof stock kernel version for Lake device (stealth mode)
+        if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
+          echo "Spoofing stock kernel version for stealth..."
+          printf '#!/bin/sh\necho "-android12-9-00016-g7c6bbcca33e1-ab12029497"\n' > ./common/scripts/setlocalversion
+          chmod +x ./common/scripts/setlocalversion
+        elif [[ "${{ inputs.kernel_version }}" == "5."* ]] || [[ "${{ inputs.kernel_version }}" == "6.1" ]]; then
           case ${{ matrix.build_type }} in
             TheWildJames)
               perl -i -0777 -pe 's/(.*)echo "\$res"/$1echo "\$res-🟢-Wild-Exclusive"/s' ./common/scripts/setlocalversion
@@ -831,6 +835,16 @@ jobs:
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git add .
         git commit -m "Wild: Clean Dirty Flag"
+
+    - name: Spoof Build Timestamp
+      if: inputs.android_version == 'android12' && inputs.kernel_version == '5.10'
+      working-directory: ${{ env.KERNEL_ROOT }}/common
+      run: |
+        # Stock timestamp: #1 SMP PREEMPT Fri Jun 28 13:58:53 UTC 2024
+        STOCK_TIMESTAMP="Fri Jun 28 13:58:53 UTC 2024"
+        echo "Setting build timestamp to: $STOCK_TIMESTAMP"
+        export KBUILD_BUILD_TIMESTAMP="$STOCK_TIMESTAMP"
+        echo "KBUILD_BUILD_TIMESTAMP=$STOCK_TIMESTAMP" >> $GITHUB_ENV
 
     - name: Build Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
