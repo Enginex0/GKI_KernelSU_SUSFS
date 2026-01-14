@@ -695,15 +695,17 @@ jobs:
         CONFIG_IP_SET_HASH_NETIFACE=y
         CONFIG_IP_SET_LIST_SET=y
 
-        # ZRAM/LZ4 Compression Support
+        # ZRAM/LZ4 Compression Support (keep ZRAM as module for FurLC/ZRAM-Module compatibility)
         CONFIG_ZSMALLOC=y
-        CONFIG_ZRAM=y
         CONFIG_CRYPTO_LZ4HC=y
 
         EOF
 
-        # Ensure ZRAM is built-in (not module)
-        sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "${{ env.DEFCONFIG }}"
+        # Keep ZRAM as module if already set, or add it
+        if ! grep -q "CONFIG_ZRAM" "${{ env.DEFCONFIG }}"; then
+          echo "CONFIG_ZRAM=m" >> "${{ env.DEFCONFIG }}"
+        fi
+        # Ensure ZSMALLOC is built-in (required for ZRAM)
         sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "${{ env.DEFCONFIG }}"
 
         echo "Checking if configs were applied..."
