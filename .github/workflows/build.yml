@@ -483,8 +483,8 @@ jobs:
             patch -p1 --fuzz=3 < 10_enable_susfs_for_resukisu.patch
 
             # Verify critical changes were applied
-            if ! grep -q "CONFIG_KSU_SUSFS" kernel/Kconfig; then
-              echo "ERROR: Kconfig patch failed - CONFIG_KSU_SUSFS not found!"
+            if ! grep -q "config KSU_SUSFS" kernel/Kconfig; then
+              echo "ERROR: Kconfig patch failed - KSU_SUSFS not found!"
               echo "=== kernel/Kconfig contents ==="
               cat kernel/Kconfig
               exit 1
