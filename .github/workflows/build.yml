@@ -721,10 +721,7 @@ jobs:
         if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
           # For Lake device - spoof exact stock version
           echo "Spoofing stock kernel version for stealth..."
-          cat > ./common/scripts/setlocalversion << 'STOCKVER'
-#!/bin/sh
-echo "-android12-9-00016-g7c6bbcca33e1-ab12029497"
-STOCKVER
+          printf '#!/bin/sh\necho "-android12-9-00016-g7c6bbcca33e1-ab12029497"\n' > ./common/scripts/setlocalversion
           chmod +x ./common/scripts/setlocalversion
         elif [[ "${{ inputs.kernel_version }}" == "5."* ]] || [[ "${{ inputs.kernel_version }}" == "6.1" ]]; then
           case ${{ matrix.build_type }} in
