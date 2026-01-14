@@ -529,6 +529,52 @@ jobs:
 
         echo "=== NoMount integration complete ==="
 
+    - name: Upgrade LZ4 to v1.10.0 with ARM64 NEON
+      working-directory: ${{ env.KERNEL_ROOT }}/common
+      run: |
+        echo "=== Upgrading LZ4 to v1.10.0 ==="
+
+        # Remove old LZ4 library files
+        rm -f lib/lz4/lz4_compress.c lib/lz4/lz4_decompress.c lib/lz4/lz4defs.h lib/lz4/lz4hc_compress.c
+
+        # Copy new LZ4 v1.10.0 library with ARM64 NEON optimization
+        cp -r $GITHUB_WORKSPACE/zram/lz4/* ./lib/lz4/
+        cp -r $GITHUB_WORKSPACE/zram/include/linux/* ./include/linux/
+
+        # Apply LZ4 kernel integration patch for this kernel version
+        if [ -f "$GITHUB_WORKSPACE/zram/${{ inputs.kernel_version }}/lz4_1.10.0.patch" ]; then
+          cp "$GITHUB_WORKSPACE/zram/${{ inputs.kernel_version }}/lz4_1.10.0.patch" ./
+          patch -p1 -F 3 --fuzz=5 < lz4_1.10.0.patch || true
+          echo "LZ4 v1.10.0 patch applied for kernel ${{ inputs.kernel_version }}"
+        else
+          echo "WARNING: No LZ4 patch found for kernel ${{ inputs.kernel_version }}"
+        fi
+
+        # Verify LZ4 NEON assembly exists
+        if [ -f "lib/lz4/lz4armv8/lz4armv8.S" ]; then
+          echo "SUCCESS: LZ4 ARM64 NEON assembly present"
+        else
+          echo "WARNING: LZ4 ARM64 NEON assembly missing"
+        fi
+
+        echo "=== LZ4 upgrade complete ==="
+
+    - name: Apply KernelSU-Next Fixes
+      if: ${{ inputs.ksu_variant == 'Next' }}
+      working-directory: ${{ env.KERNEL_ROOT }}/KernelSU-Next
+      run: |
+        echo "=== Applying KernelSU-Next fixes from fork ==="
+
+        # Apply additional Next fixes from our repo
+        for patch in $GITHUB_WORKSPACE/next-patch/*.patch; do
+          if [ -f "$patch" ]; then
+            echo "Applying: $(basename $patch)"
+            patch -p1 -F 3 < "$patch" || true
+          fi
+        done
+
+        echo "=== KernelSU-Next fixes complete ==="
+
     - name: Apply Performance Patches
       if: false
       working-directory: ${{ env.KERNEL_ROOT }}/common
@@ -648,8 +694,17 @@ jobs:
         CONFIG_IP_SET_HASH_NETPORT=y
         CONFIG_IP_SET_HASH_NETIFACE=y
         CONFIG_IP_SET_LIST_SET=y
-        
+
+        # ZRAM/LZ4 Compression Support
+        CONFIG_ZSMALLOC=y
+        CONFIG_ZRAM=y
+        CONFIG_CRYPTO_LZ4HC=y
+
         EOF
+
+        # Ensure ZRAM is built-in (not module)
+        sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "${{ env.DEFCONFIG }}"
+        sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "${{ env.DEFCONFIG }}"
 
         echo "Checking if configs were applied..."
         if grep -q "CONFIG_KSU=y" "${{ env.DEFCONFIG }}" && grep -q "CONFIG_KSU_SUSFS=y" "${{ env.DEFCONFIG }}" && grep -q "CONFIG_KPROBES=y" "${{ env.DEFCONFIG }}"; then
