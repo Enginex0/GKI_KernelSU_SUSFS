@@ -1034,7 +1034,155 @@ jobs:
         sed -i 's/^        //' "$ZRAM_MODULE/service.sh"
         chmod +x "$ZRAM_MODULE/service.sh"
 
-        echo "KSU ZRAM module created at: $ZRAM_MODULE"
+        # Create customize.sh
+        cat > "$ZRAM_MODULE/customize.sh" << 'CUSTOMIZESH'
+        #!/system/bin/sh
+        # ZRAM 8GB Module Installation Script
+
+        ui_print "========================================="
+        ui_print "   ZRAM 8GB LZ4 Configuration Module"
+        ui_print "   Author: Enginex0"
+        ui_print "========================================="
+        ui_print ""
+        ui_print "Configuration:"
+        ui_print "  - ZRAM Size: 8GB"
+        ui_print "  - Algorithm: LZ4"
+        ui_print "  - Streams: 8"
+        ui_print ""
+        ui_print "The module will configure ZRAM at boot."
+        ui_print ""
+
+        # Set permissions
+        set_perm_recursive $MODPATH 0 0 0755 0644
+        set_perm $MODPATH/service.sh 0 0 0755
+        CUSTOMIZESH
+        sed -i 's/^        //' "$ZRAM_MODULE/customize.sh"
+        chmod +x "$ZRAM_MODULE/customize.sh"
+
+        # Create META-INF structure
+        mkdir -p "$ZRAM_MODULE/META-INF/com/google/android"
+
+        # Create updater-script
+        echo '#MAGISK' > "$ZRAM_MODULE/META-INF/com/google/android/updater-script"
+
+        # Create update-binary
+        cat > "$ZRAM_MODULE/META-INF/com/google/android/update-binary" << 'UPDATEBIN'
+        #!/sbin/sh
+
+        #################
+        # Initialization
+        #################
+
+        umask 022
+
+        # Global vars
+        TMPDIR=/dev/tmp
+        PERSISTDIR=/sbin/.magisk/mirror/persist
+
+        rm -rf $TMPDIR 2>/dev/null
+        mkdir -p $TMPDIR
+
+        # Echo before loading util_functions
+        ui_print() { echo "$1"; }
+
+        require_new_magisk() {
+          ui_print "*******************************"
+          ui_print " Please install Magisk v20.4+! "
+          ui_print "*******************************"
+          exit 1
+        }
+
+        ##############
+        # Environment
+        ##############
+
+        OUTFD=$2
+        ZIPFILE=$3
+
+        mount /data 2>/dev/null
+
+        # Load utility functions
+        [ -f /data/adb/magisk/util_functions.sh ] || require_new_magisk
+        . /data/adb/magisk/util_functions.sh
+        [ $MAGISK_VER_CODE -lt 20400 ] && require_new_magisk
+
+        # Prep flash
+        setup_flashable
+
+        # Mount partitions
+        mount_partitions
+
+        # Detect version and architecture
+        api_level_arch_detect
+
+        # Setup busybox and binaries
+        $BOOTMODE && boot_actions || recovery_actions
+
+        ##############
+        # Preparation
+        ##############
+
+        # Extract prop file
+        unzip -o "$ZIPFILE" module.prop -d $TMPDIR >&2
+        [ ! -f $TMPDIR/module.prop ] && abort "! Unable to extract zip file!"
+
+        $BOOTMODE && MODDIRNAME=modules_update || MODDIRNAME=modules
+        MODULEROOT=$NVBASE/$MODDIRNAME
+        MODID=$(grep_prop id $TMPDIR/module.prop)
+        MODPATH=$MODULEROOT/$MODID
+
+        # Create mod paths
+        rm -rf $MODPATH 2>/dev/null
+        mkdir -p $MODPATH
+
+        ##########
+        # Install
+        ##########
+
+        ui_print "- Extracting module files"
+        unzip -o "$ZIPFILE" -d $MODPATH >&2
+
+        # Remove placeholder
+        rm -f $MODPATH/META-INF/com/google/android/updater-script
+        rm -rf $MODPATH/META-INF 2>/dev/null
+
+        # Set permissions
+        set_perm_recursive $MODPATH 0 0 0755 0644
+        [ -f $MODPATH/service.sh ] && set_perm $MODPATH/service.sh 0 0 0755
+
+        # Handle replace folders
+        for TARGET in $REPLACE; do
+          ui_print "- Replace target: $TARGET"
+          mktouch $MODPATH$TARGET/.replace
+        done
+
+        $BOOTMODE && {
+          # Update info for Magisk Manager
+          mktouch $NVBASE/modules/$MODID/update
+          cp -af $MODPATH/module.prop $NVBASE/modules/$MODID/module.prop
+        }
+
+        # Copy over custom sepolicy rules
+        [ -f $MODPATH/sepolicy.rule ] && {
+          ui_print "- Installing custom sepolicy rules"
+          copy_sepolicy_rules
+        }
+
+        ##############
+        # Finalizing
+        ##############
+
+        cd /
+        $BOOTMODE || recovery_cleanup
+        rm -rf $TMPDIR
+
+        ui_print "- Done"
+        exit 0
+        UPDATEBIN
+        sed -i 's/^        //' "$ZRAM_MODULE/META-INF/com/google/android/update-binary"
+        chmod +x "$ZRAM_MODULE/META-INF/com/google/android/update-binary"
+
+        echo "KSU ZRAM module created at: $ZRAM_MODULE (exact replica of standalone)"
 
     - name: Copy snd-aloop module
       if: ${{ inputs.variant == 'vTomsonek' }}
