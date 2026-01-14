@@ -220,7 +220,15 @@ jobs:
           WKSU)
             SUSFS_VERSION="2.0.0"
             cd "$KERNEL_ROOT/Wild_KSU"
-            echo "Nothing to fix for WKSU"
+            echo "Adding SUS_PROC to Wild_KSU Kconfig..."
+
+            # Add CONFIG_KSU_SUSFS_SUS_PROC to Wild_KSU Kconfig if not present
+            if ! grep -q "KSU_SUSFS_SUS_PROC" kernel/Kconfig; then
+              sed -i 's/config KSU_SUSFS_SUS_MAP/config KSU_SUSFS_SUS_PROC\n    bool "Enable to hide suspicious processes"\n    depends on KSU_SUSFS\n    default y\n\nconfig KSU_SUSFS_SUS_MAP/' kernel/Kconfig
+              echo "SUS_PROC Kconfig added before SUS_MAP"
+            fi
+
+            echo "SUS_PROC Kconfig option added to Wild_KSU"
 
             cd "$KERNEL_ROOT/common"
             cp "$SUSFS4KSU/kernel_patches/fs/"* "$KERNEL_ROOT/common/fs/"
