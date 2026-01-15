@@ -515,18 +515,54 @@ jobs:
             patch -p1 --fuzz=3 < "50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
             echo "SUCCESS: Main SUSFS patch applied"
 
-            # Step 4: Apply SUS_PROC procfs hook patch (for ksud hiding)
-            SUS_PROC_PATCH="$SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch"
-            if [ ! -f "$SUS_PROC_PATCH" ]; then
-              echo "ERROR: SUS_PROC patch not found: $SUS_PROC_PATCH"
-              exit 1
+            # Step 4: Apply SUS_PROC hooks using sed (more robust than patch)
+            echo "Applying SUS_PROC hooks via sed..."
+
+            # Add susfs.h include if not present
+            if ! grep -q "CONFIG_KSU_SUSFS_SUS_PROC" fs/proc/base.c; then
+              sed -i '/#include "internal.h"/a\
+#ifdef CONFIG_KSU_SUSFS_SUS_PROC\
+#include <linux/susfs.h>\
+#endif' fs/proc/base.c
             fi
-            echo "Applying SUS_PROC procfs hooks..."
-            patch -p1 --fuzz=3 < "$SUS_PROC_PATCH"
+
+            # Add hook in proc_pid_lookup (after "if (!task)" check)
+            sed -i '/result = proc_pid_instantiate(dentry, task, NULL);/i\
+#ifdef CONFIG_KSU_SUSFS_SUS_PROC\
+	{\
+		char comm[TASK_COMM_LEN];\
+		get_task_comm(comm, task);\
+		if (susfs_should_hide_proc(comm)) {\
+			put_task_struct(task);\
+			goto out;\
+		}\
+	}\
+#endif\
+' fs/proc/base.c
+
+            # Add hook in proc_pid_readdir (after "unsigned int len;" declaration)
+            sed -i '/cond_resched();/{
+              /has_pid_permissions/!{
+                i\
+#ifdef CONFIG_KSU_SUSFS_SUS_PROC\
+		if (iter.task) {\
+			char comm[TASK_COMM_LEN];\
+			get_task_comm(comm, iter.task);\
+			if (susfs_should_hide_proc(comm)) {\
+				iter = next_tgid(ns, iter);\
+				continue;\
+			}\
+		}\
+#endif
+
+              }
+            }' fs/proc/base.c
 
             # Verify SUS_PROC hooks were applied
             if ! grep -q "susfs_should_hide_proc" fs/proc/base.c; then
               echo "ERROR: SUS_PROC hooks not found in fs/proc/base.c!"
+              echo "=== Showing relevant sections of base.c ==="
+              grep -n -B2 -A2 "proc_pid_instantiate\|cond_resched" fs/proc/base.c | head -40
               exit 1
             fi
             echo "SUCCESS: SUS_PROC hooks applied and verified"
