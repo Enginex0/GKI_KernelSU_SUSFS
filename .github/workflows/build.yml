@@ -518,51 +518,60 @@ jobs:
             # Step 4: Apply SUS_PROC hooks using sed (more robust than patch)
             echo "Applying SUS_PROC hooks via sed..."
 
-            # Add susfs.h include if not present
-            if ! grep -q "CONFIG_KSU_SUSFS_SUS_PROC" fs/proc/base.c; then
-              sed -i '/#include "internal.h"/a\
+            # Create sed script for SUS_PROC hooks
+            cat > /tmp/sus_proc_hooks.sed << 'SEDEOF'
+/#include "internal.h"/a\
 #ifdef CONFIG_KSU_SUSFS_SUS_PROC\
 #include <linux/susfs.h>\
-#endif' fs/proc/base.c
+#endif
+SEDEOF
+
+            # Apply include
+            if ! grep -q "CONFIG_KSU_SUSFS_SUS_PROC" fs/proc/base.c; then
+              sed -i -f /tmp/sus_proc_hooks.sed fs/proc/base.c
             fi
 
-            # Add hook in proc_pid_lookup (after "if (!task)" check)
-            sed -i '/result = proc_pid_instantiate(dentry, task, NULL);/i\
+            # Create hook for proc_pid_lookup
+            cat > /tmp/sus_proc_lookup.sed << 'SEDEOF'
+/result = proc_pid_instantiate(dentry, task, NULL);/i\
 #ifdef CONFIG_KSU_SUSFS_SUS_PROC\
-	{\
-		char comm[TASK_COMM_LEN];\
-		get_task_comm(comm, task);\
-		if (susfs_should_hide_proc(comm)) {\
-			put_task_struct(task);\
-			goto out;\
-		}\
-	}\
-#endif\
-' fs/proc/base.c
-
-            # Add hook in proc_pid_readdir (after "unsigned int len;" declaration)
-            sed -i '/cond_resched();/{
-              /has_pid_permissions/!{
-                i\
-#ifdef CONFIG_KSU_SUSFS_SUS_PROC\
-		if (iter.task) {\
-			char comm[TASK_COMM_LEN];\
-			get_task_comm(comm, iter.task);\
-			if (susfs_should_hide_proc(comm)) {\
-				iter = next_tgid(ns, iter);\
-				continue;\
-			}\
-		}\
+\t{\
+\t\tchar comm[TASK_COMM_LEN];\
+\t\tget_task_comm(comm, task);\
+\t\tif (susfs_should_hide_proc(comm)) {\
+\t\t\tput_task_struct(task);\
+\t\t\tgoto out;\
+\t\t}\
+\t}\
 #endif
+SEDEOF
+            sed -i -f /tmp/sus_proc_lookup.sed fs/proc/base.c
 
-              }
-            }' fs/proc/base.c
+            # Create hook for proc_pid_readdir - insert before first cond_resched in the readdir loop
+            cat > /tmp/sus_proc_readdir.sed << 'SEDEOF'
+/unsigned int len;$/a\
+\
+#ifdef CONFIG_KSU_SUSFS_SUS_PROC\
+\t\tif (iter.task) {\
+\t\t\tchar comm[TASK_COMM_LEN];\
+\t\t\tget_task_comm(comm, iter.task);\
+\t\t\tif (susfs_should_hide_proc(comm)) {\
+\t\t\t\titer = next_tgid(ns, iter);\
+\t\t\t\tcontinue;\
+\t\t\t}\
+\t\t}\
+#endif
+SEDEOF
+            sed -i -f /tmp/sus_proc_readdir.sed fs/proc/base.c
+
+            # Convert \t to actual tabs
+            sed -i 's/\\t/\t/g' fs/proc/base.c
 
             # Verify SUS_PROC hooks were applied
             if ! grep -q "susfs_should_hide_proc" fs/proc/base.c; then
               echo "ERROR: SUS_PROC hooks not found in fs/proc/base.c!"
               echo "=== Showing relevant sections of base.c ==="
-              grep -n -B2 -A2 "proc_pid_instantiate\|cond_resched" fs/proc/base.c | head -40
+              grep -n -B2 -A2 "proc_pid_instantiate\|unsigned int len" fs/proc/base.c | head -40
               exit 1
             fi
             echo "SUCCESS: SUS_PROC hooks applied and verified"
