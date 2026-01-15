@@ -1036,15 +1036,53 @@ jobs:
         git add .
         git commit -m "Wild: Clean Dirty Flag"
 
-    - name: Spoof Build Timestamp
+    - name: Spoof Full Kernel Identity
       if: inputs.android_version == 'android12' && inputs.kernel_version == '5.10'
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
-        # Stock timestamp: #1 SMP PREEMPT Fri Jun 28 13:58:53 UTC 2024
-        STOCK_TIMESTAMP="Fri Jun 28 13:58:53 UTC 2024"
-        echo "Setting build timestamp to: $STOCK_TIMESTAMP"
-        export KBUILD_BUILD_TIMESTAMP="$STOCK_TIMESTAMP"
-        echo "KBUILD_BUILD_TIMESTAMP=$STOCK_TIMESTAMP" >> $GITHUB_ENV
+        echo "=== Spoofing Full Kernel Identity (Lake Device) ==="
+
+        # Stock kernel values from device-profiles.json
+        STOCK_VERSION_STRING="#1 SMP PREEMPT Fri Jun 28 13:58:53 UTC 2024"
+        STOCK_BUILD_USER="build-user"
+        STOCK_BUILD_HOST="build-host"
+
+        # Method 1: Hardcode UTS_VERSION directly in mkcompile_h
+        # This is the ONLY reliable way to spoof the timestamp
+        if [ -f "scripts/mkcompile_h" ]; then
+          echo "Patching scripts/mkcompile_h to hardcode version string..."
+
+          # Replace the entire UTS_VERSION calculation with hardcoded value
+          sed -i '/^UTS_VERSION=/,/^$/c\UTS_VERSION="'"$STOCK_VERSION_STRING"'"' scripts/mkcompile_h
+
+          # Also hardcode LINUX_COMPILE_BY and LINUX_COMPILE_HOST
+          # Find where they're set and replace
+          sed -i 's/LINUX_COMPILE_BY=.*/LINUX_COMPILE_BY="'"$STOCK_BUILD_USER"'"/' scripts/mkcompile_h
+          sed -i 's/LINUX_COMPILE_HOST=.*/LINUX_COMPILE_HOST="'"$STOCK_BUILD_HOST"'"/' scripts/mkcompile_h
+
+          # If the variables aren't being set, append them after UTS_VERSION
+          if ! grep -q "LINUX_COMPILE_BY=" scripts/mkcompile_h; then
+            sed -i '/^UTS_VERSION=/a LINUX_COMPILE_BY="'"$STOCK_BUILD_USER"'"\nLINUX_COMPILE_HOST="'"$STOCK_BUILD_HOST"'"' scripts/mkcompile_h
+          fi
+
+          echo "=== mkcompile_h patched ==="
+          grep -E "UTS_VERSION=|LINUX_COMPILE_BY=|LINUX_COMPILE_HOST=" scripts/mkcompile_h || true
+        fi
+
+        # Method 2: For newer kernels (6.1+), also patch init/Makefile
+        if [ -f "init/Makefile" ]; then
+          if grep -q "build-timestamp" init/Makefile; then
+            echo "Patching init/Makefile for newer kernel..."
+            sed -i 's/build-timestamp = .*/build-timestamp = "Fri Jun 28 13:58:53 UTC 2024"/' init/Makefile
+          fi
+        fi
+
+        # Export for build system (backup method)
+        echo "KBUILD_BUILD_TIMESTAMP=Fri Jun 28 13:58:53 UTC 2024" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_USER=$STOCK_BUILD_USER" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_HOST=$STOCK_BUILD_HOST" >> $GITHUB_ENV
+
+        echo "=== Full kernel identity spoofing complete ==="
 
     - name: Build Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
