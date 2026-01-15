@@ -261,11 +261,11 @@ jobs:
             # fi
             echo "SUS_PROC patch DISABLED for testing"
 
-            # Apply Unicode security filter hooks
-            if [ -f "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" ]; then
-              patch -p1 --fuzz=3 < "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" || true
-              echo "Unicode security filter hooks applied"
-            fi
+            # Apply Unicode security filter hooks - DISABLED FOR TESTING
+            # if [ -f "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" ]; then
+            #   patch -p1 --fuzz=3 < "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" || true
+            #   echo "Unicode security filter hooks applied"
+            # fi
 
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
               if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
@@ -539,20 +539,21 @@ jobs:
             # fi
             echo "SUS_PROC patch DISABLED for testing"
 
-            # Step 5: Apply Unicode filter hooks
-            UNICODE_PATCH="$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch"
-            if [ -f "$UNICODE_PATCH" ]; then
-              echo "Applying Unicode filter hooks..."
-              patch -p1 --fuzz=3 < "$UNICODE_PATCH"
-              PATCH_EXIT=$?
-              if [ $PATCH_EXIT -ne 0 ]; then
-                echo "ERROR: Unicode filter patch failed"
-                find . -name "*.rej" -exec cat {} \;
-                exit 1
-              fi
-              grep -q "susfs_check_unicode_bypass" fs/open.c || { echo "FAIL: Unicode hooks not in open.c"; exit 1; }
-              echo "SUCCESS: Unicode filter hooks applied"
-            fi
+            # Step 5: Apply Unicode filter hooks - DISABLED FOR TESTING
+            # UNICODE_PATCH="$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch"
+            # if [ -f "$UNICODE_PATCH" ]; then
+            #   echo "Applying Unicode filter hooks..."
+            #   patch -p1 --fuzz=3 < "$UNICODE_PATCH"
+            #   PATCH_EXIT=$?
+            #   if [ $PATCH_EXIT -ne 0 ]; then
+            #     echo "ERROR: Unicode filter patch failed"
+            #     find . -name "*.rej" -exec cat {} \;
+            #     exit 1
+            #   fi
+            #   grep -q "susfs_check_unicode_bypass" fs/open.c || { echo "FAIL: Unicode hooks not in open.c"; exit 1; }
+            #   echo "SUCCESS: Unicode filter hooks applied"
+            # fi
+            echo "Unicode filter DISABLED for testing"
 
             # Step 6: Version-specific kernel fixes (legitimate sed for kernel quirks)
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
@@ -772,7 +773,7 @@ jobs:
         CONFIG_KSU=y
         CONFIG_KSU_SUSFS=y
         # CONFIG_KSU_SUSFS_SUS_PROC=y  # DISABLED for testing
-        CONFIG_KSU_SUSFS_UNICODE_FILTER=y
+        # CONFIG_KSU_SUSFS_UNICODE_FILTER=y  # DISABLED for testing
 
         # Mountify Support
         CONFIG_TMPFS_XATTR=y
