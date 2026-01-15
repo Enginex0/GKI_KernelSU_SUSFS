@@ -238,6 +238,14 @@ jobs:
         case "${{ inputs.ksu_variant }}" in
           WKSU)
             SUSFS_VERSION="2.0.0"
+
+            # Add KSU_SUSFS_UNICODE_FILTER Kconfig option to Wild_KSU (not present by default)
+            cd "$KERNEL_ROOT/KernelSU"
+            if [ -f "$KERNEL_PATCHES/wild/add_unicode_filter_kconfig.patch" ]; then
+              echo "Adding KSU_SUSFS_UNICODE_FILTER to Wild_KSU Kconfig..."
+              patch -p1 --fuzz=3 < "$KERNEL_PATCHES/wild/add_unicode_filter_kconfig.patch" || echo "Warning: Kconfig patch had issues"
+            fi
+
             cd "$KERNEL_ROOT/common"
             cp "$SUSFS4KSU/kernel_patches/fs/"* "$KERNEL_ROOT/common/fs/"
             cp "$SUSFS4KSU/kernel_patches/include/linux/"* "$KERNEL_ROOT/common/include/linux/"
