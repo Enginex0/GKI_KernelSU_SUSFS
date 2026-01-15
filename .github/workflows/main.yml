@@ -63,6 +63,10 @@ on:
         description: "Build All LTS Kernels"
         type: boolean
         default: false
+      use_zram:
+        description: "Enable ZRAM with LZ4K/LZ4KD"
+        type: boolean
+        default: true
 
 jobs:
   build-a12-5-10:
@@ -136,6 +140,7 @@ jobs:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
       build_bypass: ${{ inputs.build_bypass }}
+      use_zram: ${{ inputs.use_zram }}
 
   build-lts:
     if: inputs.build_lts

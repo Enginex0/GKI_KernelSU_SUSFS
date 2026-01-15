@@ -16,6 +16,10 @@ on:
       build_bypass:
         required: true
         type: boolean
+      use_zram:
+        required: false
+        type: boolean
+        default: true
 
 jobs:
   build-kernel-custom:
@@ -40,3 +44,4 @@ jobs:
       ksu_variant: ${{ inputs.ksu_variant }}
       ksu_commit: ${{ inputs.ksu_commit }}
       build_bypass: ${{ inputs.build_bypass }}
+      use_zram: ${{ inputs.use_zram }}
