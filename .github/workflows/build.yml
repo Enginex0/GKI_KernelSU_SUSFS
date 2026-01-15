@@ -244,6 +244,12 @@ jobs:
             cp $SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./
             patch -p1 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
 
+            # Apply Unicode filter hooks (SUSFS built-in, boot-safe implementation)
+            if [ -f "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" ]; then
+              cp "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" ./
+              patch -p1 --fuzz=3 < 51_add_susfs_unicode_filter_hooks.patch || echo "Warning: Unicode filter hooks patch had issues"
+            fi
+
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
               if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
                 sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
@@ -354,17 +360,23 @@ jobs:
             patch -p1 < overwrite_hook_mode.patch
             echo "patching ksu_toolkit"
             patch -p1 < ksu_toolkit.patch
-            
+
             cd "$KERNEL_ROOT/common"
             cp "$SUSFS4KSU/kernel_patches/fs/"* "$KERNEL_ROOT/common/fs/"
             cp "$SUSFS4KSU/kernel_patches/include/linux/"* "$KERNEL_ROOT/common/include/linux/"
             cp $SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./
             patch -p1 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
 
+            # Apply Unicode filter hooks (SUSFS built-in, boot-safe implementation)
+            if [ -f "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" ]; then
+              cp "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" ./
+              patch -p1 --fuzz=3 < 51_add_susfs_unicode_filter_hooks.patch || echo "Warning: Unicode filter hooks patch had issues"
+            fi
+
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
               if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
                 sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
-              fi 
+              fi
               if [[ "$ACTUAL_SUBLEVEL" -le 117 ]]; then
                 cp $KERNEL_PATCHES/wild/susfs_fix_patches/v${SUSFS_VERSION}/a12-5.10/fdinfo.c.patch ./
                 patch -p1 < fdinfo.c.patch
@@ -500,7 +512,14 @@ jobs:
             fi
             echo "SUCCESS: Main SUSFS kernel patch applied"
 
-            # Step 6: Version-specific kernel fixes (legitimate sed for kernel quirks)
+            # Step 4: Apply Unicode filter hooks (SUSFS built-in, boot-safe implementation)
+            if [ -f "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" ]; then
+              cp "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" ./
+              echo "Applying Unicode filter hooks patch..."
+              patch -p1 --fuzz=3 < 51_add_susfs_unicode_filter_hooks.patch || echo "Warning: Unicode filter hooks patch had issues"
+            fi
+
+            # Step 5: Version-specific kernel fixes (legitimate sed for kernel quirks)
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
               if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
                 # Fix task_mmu.c pad printing issue in older kernels
@@ -757,6 +776,7 @@ jobs:
         # KernelSU Configuration
         CONFIG_KSU=y
         CONFIG_KSU_SUSFS=y
+        CONFIG_KSU_SUSFS_UNICODE_FILTER=y
 
         # Mountify Support
         CONFIG_TMPFS_XATTR=y
