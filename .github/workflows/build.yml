@@ -254,11 +254,12 @@ jobs:
             cp $SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./
             patch -p1 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
 
-            # Apply SUS_PROC procfs hook patch for ksud hiding
-            if [ -f "$SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch" ]; then
-              patch -p1 --fuzz=3 < "$SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch" || true
-              echo "SUS_PROC procfs hooks applied"
-            fi
+            # DISABLED: Apply SUS_PROC procfs hook patch for ksud hiding
+            # if [ -f "$SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch" ]; then
+            #   patch -p1 --fuzz=3 < "$SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch" || true
+            #   echo "SUS_PROC procfs hooks applied"
+            # fi
+            echo "SUS_PROC patch DISABLED for testing"
 
             # Apply Unicode security filter hooks
             if [ -f "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" ]; then
@@ -522,20 +523,21 @@ jobs:
             fi
             echo "SUCCESS: Main SUSFS kernel patch applied"
 
-            # Step 4: Apply SUS_PROC hooks (for ksud hiding)
-            SUS_PROC_PATCH="$SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch"
-            if [ -f "$SUS_PROC_PATCH" ]; then
-              echo "Applying SUS_PROC hooks..."
-              patch -p1 --fuzz=3 < "$SUS_PROC_PATCH"
-              PATCH_EXIT=$?
-              if [ $PATCH_EXIT -ne 0 ]; then
-                echo "ERROR: SUS_PROC patch failed"
-                find . -name "*.rej" -exec cat {} \;
-                exit 1
-              fi
-              grep -q "susfs_should_hide_proc" fs/proc/base.c || { echo "FAIL: SUS_PROC hooks not in base.c"; exit 1; }
-              echo "SUCCESS: SUS_PROC hooks applied"
-            fi
+            # DISABLED: Step 4: Apply SUS_PROC hooks (for ksud hiding)
+            # SUS_PROC_PATCH="$SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch"
+            # if [ -f "$SUS_PROC_PATCH" ]; then
+            #   echo "Applying SUS_PROC hooks..."
+            #   patch -p1 --fuzz=3 < "$SUS_PROC_PATCH"
+            #   PATCH_EXIT=$?
+            #   if [ $PATCH_EXIT -ne 0 ]; then
+            #     echo "ERROR: SUS_PROC patch failed"
+            #     find . -name "*.rej" -exec cat {} \;
+            #     exit 1
+            #   fi
+            #   grep -q "susfs_should_hide_proc" fs/proc/base.c || { echo "FAIL: SUS_PROC hooks not in base.c"; exit 1; }
+            #   echo "SUCCESS: SUS_PROC hooks applied"
+            # fi
+            echo "SUS_PROC patch DISABLED for testing"
 
             # Step 5: Apply Unicode filter hooks
             UNICODE_PATCH="$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch"
@@ -769,7 +771,7 @@ jobs:
         # KernelSU Configuration
         CONFIG_KSU=y
         CONFIG_KSU_SUSFS=y
-        CONFIG_KSU_SUSFS_SUS_PROC=y
+        # CONFIG_KSU_SUSFS_SUS_PROC=y  # DISABLED for testing
         CONFIG_KSU_SUSFS_UNICODE_FILTER=y
 
         # Mountify Support
