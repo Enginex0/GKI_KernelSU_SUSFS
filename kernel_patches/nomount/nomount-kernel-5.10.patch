@@ -133,7 +133,7 @@ new file mode 100644
 index 000000000..43ca3f0fa
 --- /dev/null
 +++ b/fs/nomount.c
-@@ -0,0 +1,643 @@
+@@ -0,0 +1,714 @@
 +#include <linux/module.h>
 +#include <linux/kernel.h>
 +#include <linux/init.h>
