@@ -847,7 +847,7 @@ index 000000000..43ca3f0fa
 +    return 0;
 +}
 +fs_initcall(nomount_init);
-\ No newline at end of file
+
 diff --git a/fs/readdir.c b/fs/readdir.c
 index 09e8ed7d4..dd3c6869c 100644
 --- a/fs/readdir.c
@@ -1067,4 +1067,5 @@ index 000000000..9e0fb1b21
 +#endif
 +
 +#endif /* _LINUX_NOMOUNT_H */
-\ No newline at end of file
+
+
