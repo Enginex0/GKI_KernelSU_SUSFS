@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         build_type: >-
           ${{
@@ -468,43 +468,44 @@ jobs:
             patch -p1 < 10_enable_susfs_for_ksu.patch
             ;;
           ReSuki)
-            # ReSukiSU SUSFS Integration - STRICT MODE (fail fast on any error)
+            # ReSukiSU SUSFS Integration - STRICT MODE (no fallbacks, patches must apply cleanly)
             SUSFS_VERSION="2.0.0"
-            echo "=== Applying SUSFS to ReSukiSU (STRICT MODE) ==="
+            echo "=== Applying SUSFS to ReSukiSU (STRICT) ==="
 
-            # Step 1: Apply ReSukiSU-specific SUSFS integration patch
+            # Step 1: Apply ReSukiSU-specific SUSFS patch (complete with all symbol definitions)
             cd "$KERNEL_ROOT/KernelSU"
-            if [ ! -f "$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_resukisu.patch" ]; then
-              echo "ERROR: ReSukiSU SUSFS patch not found!"
+            SUSFS_PATCH="$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_resukisu.patch"
+            if [ ! -f "$SUSFS_PATCH" ]; then
+              echo "ERROR: ReSukiSU SUSFS patch not found: $SUSFS_PATCH"
               exit 1
             fi
-            cp "$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_resukisu.patch" .
+            cp "$SUSFS_PATCH" .
             echo "Applying ReSukiSU SUSFS integration patch..."
             patch -p1 --fuzz=3 < 10_enable_susfs_for_resukisu.patch
-
-            # Verify critical changes were applied
-            if ! grep -q "config KSU_SUSFS" kernel/Kconfig; then
-              echo "ERROR: Kconfig patch failed - KSU_SUSFS not found!"
-              echo "=== kernel/Kconfig contents ==="
-              cat kernel/Kconfig
+            PATCH_EXIT=$?
+            if [ $PATCH_EXIT -ne 0 ]; then
+              echo "ERROR: ReSukiSU SUSFS patch failed with exit code $PATCH_EXIT"
+              echo "=== Patch rejects ==="
+              find . -name "*.rej" -exec cat {} \;
               exit 1
             fi
-            echo "SUCCESS: Kconfig SUSFS options verified"
 
-            if ! grep -q "susfs_init\|susfs.h" kernel/ksu.c; then
-              echo "ERROR: ksu.c patch failed - susfs_init not found!"
-              exit 1
-            fi
-            echo "SUCCESS: ksu.c SUSFS integration verified"
+            # Verify critical changes
+            echo "Verifying patch applied correctly..."
+            grep -q "config KSU_SUSFS" kernel/Kconfig || { echo "FAIL: Kconfig missing KSU_SUSFS"; exit 1; }
+            grep -q "susfs_init" kernel/ksu.c || { echo "FAIL: ksu.c missing susfs_init"; exit 1; }
+            grep -q "ksu_init_rc_hook" kernel/ksud.c || { echo "FAIL: ksud.c missing ksu_init_rc_hook"; exit 1; }
+            grep -q "ksu_handle_execveat" kernel/sucompat.c || { echo "FAIL: sucompat.c missing ksu_handle_execveat"; exit 1; }
+            echo "SUCCESS: All ReSukiSU SUSFS integrations verified"
 
-            # Step 2: Copy SUSFS kernel files (required)
+            # Step 2: Copy SUSFS kernel files
             cd "$KERNEL_ROOT/common"
-            cp "$SUSFS4KSU/kernel_patches/fs/susfs.c" "$KERNEL_ROOT/common/fs/"
-            cp "$SUSFS4KSU/kernel_patches/include/linux/susfs.h" "$KERNEL_ROOT/common/include/linux/"
-            cp "$SUSFS4KSU/kernel_patches/include/linux/susfs_def.h" "$KERNEL_ROOT/common/include/linux/"
+            cp "$SUSFS4KSU/kernel_patches/fs/susfs.c" fs/
+            cp "$SUSFS4KSU/kernel_patches/include/linux/susfs.h" include/linux/
+            cp "$SUSFS4KSU/kernel_patches/include/linux/susfs_def.h" include/linux/
             echo "SUCCESS: SUSFS kernel files copied"
 
-            # Step 3: Apply main SUSFS patch for kernel
+            # Step 3: Apply main SUSFS kernel patch
             SUSFS_KERNEL_PATCH="$SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
             if [ ! -f "$SUSFS_KERNEL_PATCH" ]; then
               echo "ERROR: Main SUSFS kernel patch not found: $SUSFS_KERNEL_PATCH"
@@ -513,51 +514,52 @@ jobs:
             cp "$SUSFS_KERNEL_PATCH" ./
             echo "Applying main SUSFS kernel patch..."
             patch -p1 --fuzz=3 < "50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
-            echo "SUCCESS: Main SUSFS patch applied"
+            PATCH_EXIT=$?
+            if [ $PATCH_EXIT -ne 0 ]; then
+              echo "ERROR: Main SUSFS kernel patch failed"
+              find . -name "*.rej" -exec cat {} \;
+              exit 1
+            fi
+            echo "SUCCESS: Main SUSFS kernel patch applied"
 
-            # Step 4: Apply SUS_PROC hooks - download and apply patch with high fuzz
-            echo "Applying SUS_PROC hooks..."
+            # Step 4: Apply SUS_PROC hooks (for ksud hiding)
             SUS_PROC_PATCH="$SUSFS4KSU/kernel_patches/fs/50_add_susfs_sus_proc_hooks.patch"
             if [ -f "$SUS_PROC_PATCH" ]; then
-              patch -p1 --fuzz=10 --ignore-whitespace < "$SUS_PROC_PATCH" || echo "SUS_PROC patch may have partially failed"
+              echo "Applying SUS_PROC hooks..."
+              patch -p1 --fuzz=3 < "$SUS_PROC_PATCH"
+              PATCH_EXIT=$?
+              if [ $PATCH_EXIT -ne 0 ]; then
+                echo "ERROR: SUS_PROC patch failed"
+                find . -name "*.rej" -exec cat {} \;
+                exit 1
+              fi
+              grep -q "susfs_should_hide_proc" fs/proc/base.c || { echo "FAIL: SUS_PROC hooks not in base.c"; exit 1; }
+              echo "SUCCESS: SUS_PROC hooks applied"
             fi
 
-            # Verify or manually add SUS_PROC hooks
-            if ! grep -q "susfs_should_hide_proc" fs/proc/base.c; then
-              echo "SUS_PROC patch did not apply, adding hooks manually..."
-              # Add include after internal.h
-              sed -i '/#include "internal.h"/a #ifdef CONFIG_KSU_SUSFS_SUS_PROC\n#include <linux/susfs.h>\n#endif' fs/proc/base.c
-              # The manual insertion is complex, skip for now and rely on patch
-              echo "WARNING: Manual SUS_PROC insertion skipped - feature may not work"
-            fi
-
-            if grep -q "susfs_should_hide_proc" fs/proc/base.c; then
-              echo "SUCCESS: SUS_PROC hooks verified"
-            else
-              echo "WARNING: SUS_PROC hooks not found - ksud hiding may not work"
-            fi
-
-            # Step 5: Apply Unicode security filter hooks
+            # Step 5: Apply Unicode filter hooks
             UNICODE_PATCH="$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch"
-            if [ ! -f "$UNICODE_PATCH" ]; then
-              echo "ERROR: Unicode filter patch not found: $UNICODE_PATCH"
-              exit 1
+            if [ -f "$UNICODE_PATCH" ]; then
+              echo "Applying Unicode filter hooks..."
+              patch -p1 --fuzz=3 < "$UNICODE_PATCH"
+              PATCH_EXIT=$?
+              if [ $PATCH_EXIT -ne 0 ]; then
+                echo "ERROR: Unicode filter patch failed"
+                find . -name "*.rej" -exec cat {} \;
+                exit 1
+              fi
+              grep -q "susfs_check_unicode_bypass" fs/open.c || { echo "FAIL: Unicode hooks not in open.c"; exit 1; }
+              echo "SUCCESS: Unicode filter hooks applied"
             fi
-            echo "Applying Unicode security filter hooks..."
-            patch -p1 --fuzz=3 < "$UNICODE_PATCH"
 
-            # Verify Unicode hooks were applied
-            if ! grep -q "susfs_check_unicode_bypass" fs/open.c; then
-              echo "ERROR: Unicode hooks not found in fs/open.c!"
-              exit 1
-            fi
-            echo "SUCCESS: Unicode filter hooks applied and verified"
-
-            # Step 6: Apply version-specific fixes
+            # Step 6: Version-specific kernel fixes (legitimate sed for kernel quirks)
             if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
               if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
-                sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
-                echo "Applied task_mmu.c fix for sublevel <= 209"
+                # Fix task_mmu.c pad printing issue in older kernels
+                if grep -q "goto show_pad;" ./fs/proc/task_mmu.c; then
+                  sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
+                  echo "Applied task_mmu.c fix for sublevel <= 209"
+                fi
               fi
             fi
 
