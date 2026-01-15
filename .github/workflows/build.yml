@@ -31,7 +31,7 @@ on:
         required: true
         type: boolean
       use_zram:
-        required: true
+        required: false
         type: boolean
         default: true
 
