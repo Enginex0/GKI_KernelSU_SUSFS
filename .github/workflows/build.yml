@@ -117,7 +117,11 @@ jobs:
         ANYKERNEL_BRANCH="gki-2.0"
         git clone https://github.com/WildKernels/AnyKernel3.git -b "$ANYKERNEL_BRANCH"
         rm -rf AnyKernel3/.git
-        git clone https://github.com/WildKernels/kernel_patches.git
+        git clone https://github.com/WildKernels/kernel_patches.git wild_kernel_patches
+        # Merge our local patches with Wild patches
+        cp -r kernel_patches/* wild_kernel_patches/ 2>/dev/null || true
+        rm -rf kernel_patches
+        mv wild_kernel_patches kernel_patches
         git clone https://github.com/ShirkNeko/SukiSU_patch.git
 
     - name: Initialize and Sync Kernel Source
