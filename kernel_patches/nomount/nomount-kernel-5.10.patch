@@ -847,7 +847,6 @@ index 000000000..43ca3f0fa
 +    return 0;
 +}
 +fs_initcall(nomount_init);
-
 diff --git a/fs/readdir.c b/fs/readdir.c
 index 09e8ed7d4..dd3c6869c 100644
 --- a/fs/readdir.c
