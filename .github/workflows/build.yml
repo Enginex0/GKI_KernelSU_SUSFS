@@ -548,16 +548,17 @@ jobs:
       run: |
         echo "=== Integrating NoMount ==="
 
-        # Clone NoMount
-        git clone --depth 1 https://github.com/maxsteeel/nomount.git
-
+        # Use local NoMount patches with SUSFS integration (from kernel_patches/nomount/)
         cd common
 
         # Select appropriate patch based on kernel version
         if [[ "${{ inputs.kernel_version }}" == "6.6" || "${{ inputs.kernel_version }}" == "6.1" || "${{ inputs.kernel_version }}" == "5.15" ]]; then
+          # For newer kernels, clone from upstream (no local patch yet)
+          git clone --depth 1 https://github.com/maxsteeel/nomount.git ../nomount
           NOMOUNT_PATCH="../nomount/patches/nomount-kernel-5.15-6.6.patch"
         else
-          NOMOUNT_PATCH="../nomount/patches/nomount-kernel-5.10.patch"
+          # For 5.10, use local patch with SUSFS integration
+          NOMOUNT_PATCH="$KERNEL_PATCHES/nomount/nomount-kernel-5.10.patch"
         fi
 
         echo "Applying NoMount patch: $NOMOUNT_PATCH"
