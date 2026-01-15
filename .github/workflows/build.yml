@@ -244,7 +244,8 @@ jobs:
             SUSFS_VERSION="2.0.0"
 
             # Add KSU_SUSFS_UNICODE_FILTER Kconfig option to Wild_KSU (not present by default)
-            cd "$KERNEL_ROOT/KernelSU"
+            # Wild_KSU installs to $KERNEL_ROOT/Wild_KSU, not KernelSU
+            cd "$KERNEL_ROOT/Wild_KSU"
             if [ -f "$KERNEL_PATCHES/wild/add_unicode_filter_kconfig.patch" ]; then
               echo "Adding KSU_SUSFS_UNICODE_FILTER to Wild_KSU Kconfig..."
               patch -p1 --fuzz=3 < "$KERNEL_PATCHES/wild/add_unicode_filter_kconfig.patch" || echo "Warning: Kconfig patch had issues"
