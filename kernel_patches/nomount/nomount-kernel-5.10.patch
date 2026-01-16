@@ -6,12 +6,12 @@ index c34b9d4e0..8ec1f2b07 100644
  config IO_WQ
  	bool
  
-+config NOMOUNT
-+	bool "NoMount Path Redirection Subsystem"
++config FS_DCACHE_PREFETCH
++	bool "Filesystem Dcache Prefetch Optimization"
 +	default y
 +	help
-+	  NoMount allows path redirection and virtual file injection
-+	  without mounting filesystems. Useful for systemless modifications.
++	  Enable dcache prefetching for improved path resolution
++	  performance on frequently accessed filesystem paths.
 +
  endmenu
 diff --git a/fs/Makefile b/fs/Makefile
@@ -22,7 +22,7 @@ index c7851875b..0376a2a25 100644
  obj-$(CONFIG_EROFS_FS)		+= erofs/
  obj-$(CONFIG_VBOXSF_FS)		+= vboxsf/
  obj-$(CONFIG_ZONEFS_FS)		+= zonefs/
-+obj-$(CONFIG_NOMOUNT) += nomount.o
++obj-$(CONFIG_FS_DCACHE_PREFETCH) += vfs_dcache.o
 diff --git a/fs/d_path.c b/fs/d_path.c
 index a69e2cd36..8d52e7b00 100644
 --- a/fs/d_path.c
@@ -31,8 +31,8 @@ index a69e2cd36..8d52e7b00 100644
  #include <linux/prefetch.h>
  #include "mount.h"
  
-+#ifdef CONFIG_NOMOUNT
-+#include <linux/nomount.h>
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++#include <linux/vfs_dcache.h>
 +#endif
 +
  static int prepend(char **buffer, int *buflen, const char *str, int namelen)
@@ -42,7 +42,7 @@ index a69e2cd36..8d52e7b00 100644
  	struct path root;
  	int error;
  
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	if (path->dentry && path->dentry->d_inode) {
 +		char *v_path = nomount_get_virtual_path_for_inode(path->dentry->d_inode);
 +
@@ -75,8 +75,8 @@ index 40e10b159..37b6954fc 100644
  #include "internal.h"
  #include "mount.h"
  
-+#ifdef CONFIG_NOMOUNT
-+#include <linux/nomount.h>
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++#include <linux/vfs_dcache.h>
 +#endif
 +
  #define CREATE_TRACE_POINTS
@@ -87,7 +87,7 @@ index 40e10b159..37b6954fc 100644
  	result->aname = NULL;
  	audit_getname(result);
 +
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	if (!IS_ERR(result)) {
 +		result = nomount_getname_hook(result);
 +	}
@@ -100,7 +100,7 @@ index 40e10b159..37b6954fc 100644
  {
  	int ret;
  
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	if (nomount_is_injected_file(inode))
 +		return 0;
 +
@@ -111,11 +111,11 @@ index 40e10b159..37b6954fc 100644
  	/*
  	 * Do the basic permission checks.
  	 */
-@@ -443,6 +454,14 @@ int inode_permission(struct inode *inode, int mask)
+@@ -443,6 +462,14 @@ int inode_permission(struct inode *inode, int mask)
  {
  	int retval;
  
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	if (nomount_is_injected_file(inode))
 +		return 0;
 +
@@ -126,11 +126,76 @@ index 40e10b159..37b6954fc 100644
  	retval = sb_permission(inode->i_sb, inode, mask);
  	if (retval)
  		return retval;
-diff --git a/fs/nomount.c b/fs/nomount.c
+@@ -4707,6 +4734,40 @@ int vfs_readlink(struct dentry *dentry, char __user *buffer, int buflen)
+ {
+ 	struct inode *inode = d_inode(dentry);
+ 	DEFINE_DELAYED_CALL(done);
+ 	const char *link;
+ 	int res;
+
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++	/*
++	 * For injected files that are symlinks, sanitize the symlink target
++	 * to hide revealing paths. Transform module paths to virtual paths:
++	 * /data/adb/modules/MODULE/system/... -> /system/...
++	 */
++	if (nomount_is_injected_file(inode)) {
++		DEFINE_DELAYED_CALL(nm_done);
++		const char *nm_link;
++		bool need_cleanup = false;
++
++		/* Get the symlink target first to check it */
++		nm_link = READ_ONCE(inode->i_link);
++		if (!nm_link && inode->i_op && inode->i_op->get_link) {
++			nm_link = inode->i_op->get_link(dentry, inode, &nm_done);
++			if (IS_ERR(nm_link)) {
++				return PTR_ERR(nm_link);
++			}
++			need_cleanup = true;
++		}
++		/* Sanitize symlink targets containing module paths */
++		if (nm_link) {
++			const char *sanitized = NULL;
++			const char *mod_prefix = strnstr(nm_link, "/data/adb/modules/", PATH_MAX);
++			const char *debug_prefix = strnstr(nm_link, "/debug_ramdisk/", PATH_MAX);
++
++			if (mod_prefix) {
++				/* Skip /data/adb/modules/MODULE_NAME to get /partition/... */
++				const char *after_modules = mod_prefix + 18; /* strlen("/data/adb/modules/") */
++				sanitized = strchr(after_modules, '/');
++			} else if (debug_prefix) {
++				/* Skip /debug_ramdisk to get /partition/... */
++				sanitized = debug_prefix + 14; /* strlen("/debug_ramdisk") */
++			}
++
++			if (sanitized && *sanitized == '/') {
++				int len = strlen(sanitized);
++				if (len > buflen)
++					len = buflen;
++				if (copy_to_user(buffer, sanitized, len)) {
++					if (need_cleanup)
++						do_delayed_call(&nm_done);
++					return -EFAULT;
++				}
++				if (need_cleanup)
++					do_delayed_call(&nm_done);
++				return len;
++			}
++		}
++		/* Clean up if we called get_link but are falling through */
++		if (need_cleanup)
++			do_delayed_call(&nm_done);
++	}
++#endif
++
+ 	if (unlikely(!(inode->i_opflags & IOP_DEFAULT_READLINK))) {
+ 		if (unlikely(inode->i_op->readlink))
+ 			return inode->i_op->readlink(dentry, buffer, buflen);
+diff --git a/fs/vfs_dcache.c b/fs/vfs_dcache.c
 new file mode 100644
 index 000000000..43ca3f0fa
 --- /dev/null
-+++ b/fs/nomount.c
++++ b/fs/vfs_dcache.c
 @@ -0,0 +1,772 @@
 +#include <linux/module.h>
 +#include <linux/kernel.h>
@@ -147,7 +212,7 @@ index 000000000..43ca3f0fa
 +#include <linux/miscdevice.h>
 +#include <linux/cred.h>
 +#include <linux/vmalloc.h>
-+#include <linux/nomount.h>
++#include <linux/vfs_dcache.h>
 +
 +#ifdef CONFIG_KSU_SUSFS
 +#include <linux/susfs_def.h>
@@ -180,6 +245,19 @@ index 000000000..43ca3f0fa
 +static unsigned long nm_ino_adb = 0;
 +static unsigned long nm_ino_modules = 0;
 +static dev_t nm_system_dev = 0;
++static dev_t nm_vendor_dev = 0;
++static dev_t nm_product_dev = 0;
++static dev_t nm_odm_dev = 0;
++static dev_t nm_system_ext_dev = 0;
++static dev_t nm_oem_dev = 0;
++/* OEM-specific partitions */
++static dev_t nm_mi_ext_dev = 0;
++static dev_t nm_my_heytap_dev = 0;
++static dev_t nm_prism_dev = 0;
++static dev_t nm_optics_dev = 0;
++static dev_t nm_oem_dlkm_dev = 0;
++static dev_t nm_system_dlkm_dev = 0;
++static dev_t nm_vendor_dlkm_dev = 0;
 +
 +#define STOCK_ANDROID_TIME 1230768000
 +
@@ -218,12 +296,27 @@ index 000000000..43ca3f0fa
 +	kfree(rule);
 +}
 +
++static void nomount_free_child_rcu(struct rcu_head *head)
++{
++	struct nomount_child_name *child = container_of(head, struct nomount_child_name, rcu);
++	kfree(child->name);
++	kfree(child);
++}
++
++static void nomount_free_dir_rcu(struct rcu_head *head)
++{
++	struct nomount_dir_node *dir = container_of(head, struct nomount_dir_node, rcu);
++	kfree(dir->dir_path);
++	kfree(dir);
++}
++
 +static void nomount_flush_dcache(const char *path_name) {
 +	struct path path;
 +	int err;
 +	err = kern_path(path_name, LOOKUP_FOLLOW, &path);
 +	if (!err) {
 +		d_invalidate(path.dentry);
++		path_put(&path);
 +	}
 +}
 +
@@ -280,13 +373,101 @@ index 000000000..43ca3f0fa
 +		nm_ino_modules = nomount_get_inode_by_path("/data/adb/modules");
 +}
 +
-+static void nomount_init_system_dev(void)
++static void nomount_init_partition_devs(void)
 +{
 +	struct path path;
++
 +	if (nm_system_dev == 0 && kern_path("/system", LOOKUP_FOLLOW, &path) == 0) {
 +		nm_system_dev = path.dentry->d_sb->s_dev;
 +		path_put(&path);
 +	}
++	if (nm_vendor_dev == 0 && kern_path("/vendor", LOOKUP_FOLLOW, &path) == 0) {
++		nm_vendor_dev = path.dentry->d_sb->s_dev;
++		path_put(&path);
++	}
++	if (nm_product_dev == 0 && kern_path("/product", LOOKUP_FOLLOW, &path) == 0) {
++		nm_product_dev = path.dentry->d_sb->s_dev;
++		path_put(&path);
++	}
++	if (nm_odm_dev == 0 && kern_path("/odm", LOOKUP_FOLLOW, &path) == 0) {
++		nm_odm_dev = path.dentry->d_sb->s_dev;
++		path_put(&path);
++	}
++	if (nm_system_ext_dev == 0 && kern_path("/system_ext", LOOKUP_FOLLOW, &path) == 0) {
++		nm_system_ext_dev = path.dentry->d_sb->s_dev;
++		path_put(&path);
++	}
++	if (nm_oem_dev == 0 && kern_path("/oem", LOOKUP_FOLLOW, &path) == 0) {
++		nm_oem_dev = path.dentry->d_sb->s_dev;
++		path_put(&path);
++	}
++	/* OEM-specific partitions - may not exist on all devices */
++	if (nm_mi_ext_dev == 0 && kern_path("/mi_ext", LOOKUP_FOLLOW, &path) == 0) {
++		nm_mi_ext_dev = path.dentry->d_sb->s_dev;
++		path_put(&path);
++	}
++	if (nm_my_heytap_dev == 0 && kern_path("/my_heytap", LOOKUP_FOLLOW, &path) == 0) {
++		nm_my_heytap_dev = path.dentry->d_sb->s_dev;
++		path_put(&path);
++	}
++	if (nm_prism_dev == 0 && kern_path("/prism", LOOKUP_FOLLOW, &path) == 0) {
++		nm_prism_dev = path.dentry->d_sb->s_dev;
++		path_put(&path);
++	}
++	if (nm_optics_dev == 0 && kern_path("/optics", LOOKUP_FOLLOW, &path) == 0) {
++		nm_optics_dev = path.dentry->d_sb->s_dev;
++		path_put(&path);
++	}
++	if (nm_oem_dlkm_dev == 0 && kern_path("/oem_dlkm", LOOKUP_FOLLOW, &path) == 0) {
++		nm_oem_dlkm_dev = path.dentry->d_sb->s_dev;
++		path_put(&path);
++	}
++	if (nm_system_dlkm_dev == 0 && kern_path("/system_dlkm", LOOKUP_FOLLOW, &path) == 0) {
++		nm_system_dlkm_dev = path.dentry->d_sb->s_dev;
++		path_put(&path);
++	}
++	if (nm_vendor_dlkm_dev == 0 && kern_path("/vendor_dlkm", LOOKUP_FOLLOW, &path) == 0) {
++		nm_vendor_dlkm_dev = path.dentry->d_sb->s_dev;
++		path_put(&path);
++	}
++}
++
++/* Get appropriate device ID for a virtual path */
++static dev_t nomount_get_partition_dev(const char *virtual_path)
++{
++	if (!virtual_path)
++		return nm_system_dev;
++
++	/* Standard AOSP partitions */
++	if (strncmp(virtual_path, "/vendor_dlkm", 12) == 0 && nm_vendor_dlkm_dev != 0)
++		return nm_vendor_dlkm_dev;
++	if (strncmp(virtual_path, "/vendor", 7) == 0 && nm_vendor_dev != 0)
++		return nm_vendor_dev;
++	if (strncmp(virtual_path, "/product", 8) == 0 && nm_product_dev != 0)
++		return nm_product_dev;
++	if (strncmp(virtual_path, "/odm", 4) == 0 && nm_odm_dev != 0)
++		return nm_odm_dev;
++	if (strncmp(virtual_path, "/system_ext", 11) == 0 && nm_system_ext_dev != 0)
++		return nm_system_ext_dev;
++	if (strncmp(virtual_path, "/system_dlkm", 12) == 0 && nm_system_dlkm_dev != 0)
++		return nm_system_dlkm_dev;
++	if (strncmp(virtual_path, "/oem_dlkm", 9) == 0 && nm_oem_dlkm_dev != 0)
++		return nm_oem_dlkm_dev;
++	if (strncmp(virtual_path, "/oem", 4) == 0 && nm_oem_dev != 0)
++		return nm_oem_dev;
++
++	/* OEM-specific partitions */
++	if (strncmp(virtual_path, "/mi_ext", 7) == 0 && nm_mi_ext_dev != 0)
++		return nm_mi_ext_dev;
++	if (strncmp(virtual_path, "/my_heytap", 10) == 0 && nm_my_heytap_dev != 0)
++		return nm_my_heytap_dev;
++	if (strncmp(virtual_path, "/prism", 6) == 0 && nm_prism_dev != 0)
++		return nm_prism_dev;
++	if (strncmp(virtual_path, "/optics", 7) == 0 && nm_optics_dev != 0)
++		return nm_optics_dev;
++
++	/* Default to system for any other partition */
++	return nm_system_dev;
 +}
 +
 +bool nomount_is_traversal_allowed(struct inode *inode, int mask) {
@@ -346,12 +527,12 @@ index 000000000..43ca3f0fa
 +		return;
 +
 +	if (nm_system_dev == 0)
-+		nomount_init_system_dev();
++		nomount_init_partition_devs();
 +
 +	rcu_read_lock();
 +	hash_for_each_possible_rcu(nomount_rules_ht, rule, node, inode->i_ino) {
 +		if (rule->real_ino == inode->i_ino) {
-+			stat->dev = nm_system_dev;
++			stat->dev = nomount_get_partition_dev(rule->virtual_path);
 +			stat->ino = rule->virtual_ino;
 +			stat->atime.tv_sec = STOCK_ANDROID_TIME;
 +			stat->atime.tv_nsec = 0;
@@ -366,6 +547,136 @@ index 000000000..43ca3f0fa
 +	rcu_read_unlock();
 +}
 +EXPORT_SYMBOL(nomount_spoof_stat);
++
++/*
++ * SELinux context spoofing for injected files
++ * Returns the expected SELinux context based on virtual path prefix
++ */
++const char *nomount_get_spoofed_selinux_context(struct inode *inode)
++{
++	struct nomount_rule *rule;
++	const char *context = NULL;
++	int bkt;
++
++	if (!inode || NOMOUNT_DISABLED())
++		return NULL;
++
++#ifdef CONFIG_KSU_SUSFS
++	if (susfs_is_current_proc_umounted())
++		return NULL;
++#endif
++
++	if (nomount_is_uid_blocked(current_uid().val))
++		return NULL;
++
++	rcu_read_lock();
++	hash_for_each_rcu(nomount_rules_ht, bkt, rule, node) {
++		if (rule->real_ino != 0 && rule->real_ino == inode->i_ino) {
++			/* Derive context from virtual path prefix */
++			if (strncmp(rule->virtual_path, "/system", 7) == 0)
++				context = "u:object_r:system_file:s0";
++			else if (strncmp(rule->virtual_path, "/vendor", 7) == 0)
++				context = "u:object_r:vendor_file:s0";
++			else if (strncmp(rule->virtual_path, "/product", 8) == 0)
++				context = "u:object_r:system_file:s0";
++			else if (strncmp(rule->virtual_path, "/odm", 4) == 0)
++				context = "u:object_r:vendor_file:s0";
++			else if (strncmp(rule->virtual_path, "/system_ext", 11) == 0)
++				context = "u:object_r:system_file:s0";
++			else
++				context = "u:object_r:system_file:s0";
++			break;
++		}
++	}
++	rcu_read_unlock();
++	return context;
++}
++EXPORT_SYMBOL(nomount_get_spoofed_selinux_context);
++
++/*
++ * Cached statfs data for each partition
++ * Initialized lazily on first access
++ */
++static struct kstatfs nm_cached_statfs[17];
++static bool nm_statfs_initialized = false;
++
++static void nomount_init_partition_statfs(void)
++{
++	struct path path;
++	static const char *partitions[] = {
++		"/system", "/vendor", "/product", "/system_ext",
++		"/odm", "/oem", "/mi_ext", "/my_heytap",
++		"/prism", "/optics", "/oem_dlkm", "/system_dlkm",
++		"/vendor_dlkm", NULL
++	};
++	int i;
++
++	if (nm_statfs_initialized)
++		return;
++
++	for (i = 0; partitions[i] != NULL && i < 17; i++) {
++		if (kern_path(partitions[i], LOOKUP_FOLLOW, &path) == 0) {
++			vfs_statfs(&path, &nm_cached_statfs[i]);
++			path_put(&path);
++		}
++	}
++	nm_statfs_initialized = true;
++}
++
++static int nomount_get_partition_index(const char *virtual_path)
++{
++	if (!virtual_path)
++		return 0;
++
++	if (strncmp(virtual_path, "/vendor_dlkm", 12) == 0) return 12;
++	if (strncmp(virtual_path, "/vendor", 7) == 0) return 1;
++	if (strncmp(virtual_path, "/product", 8) == 0) return 2;
++	if (strncmp(virtual_path, "/system_ext", 11) == 0) return 3;
++	if (strncmp(virtual_path, "/system_dlkm", 12) == 0) return 11;
++	if (strncmp(virtual_path, "/odm", 4) == 0) return 4;
++	if (strncmp(virtual_path, "/oem_dlkm", 9) == 0) return 10;
++	if (strncmp(virtual_path, "/oem", 4) == 0) return 5;
++	if (strncmp(virtual_path, "/mi_ext", 7) == 0) return 6;
++	if (strncmp(virtual_path, "/my_heytap", 10) == 0) return 7;
++	if (strncmp(virtual_path, "/prism", 6) == 0) return 8;
++	if (strncmp(virtual_path, "/optics", 7) == 0) return 9;
++
++	return 0; /* Default to /system */
++}
++
++int nomount_spoof_statfs(struct inode *inode, struct kstatfs *buf)
++{
++	struct nomount_rule *rule;
++	int bkt;
++	int idx;
++
++	if (!inode || !buf || NOMOUNT_DISABLED())
++		return -EINVAL;
++
++#ifdef CONFIG_KSU_SUSFS
++	if (susfs_is_current_proc_umounted())
++		return -EINVAL;
++#endif
++
++	if (nomount_is_uid_blocked(current_uid().val))
++		return -EINVAL;
++
++	if (!nm_statfs_initialized)
++		nomount_init_partition_statfs();
++
++	rcu_read_lock();
++	hash_for_each_rcu(nomount_rules_ht, bkt, rule, node) {
++		if (rule->real_ino != 0 && rule->real_ino == inode->i_ino) {
++			idx = nomount_get_partition_index(rule->virtual_path);
++			memcpy(buf, &nm_cached_statfs[idx], sizeof(*buf));
++			rcu_read_unlock();
++			return 0;
++		}
++	}
++	rcu_read_unlock();
++	return -EINVAL;
++}
++EXPORT_SYMBOL(nomount_spoof_statfs);
 +
 +char *nomount_resolve_path(const char *pathname)
 +{
@@ -565,13 +876,22 @@ index 000000000..43ca3f0fa
 +	__putname(page_buf);
 +}
 +
-+static void nomount_auto_inject_parent(const char *v_path, unsigned char type)
++/*
++ * Recursively inject directory entries up the path tree
++ * For /system/priv-app/MyApp/MyApp.apk, this injects:
++ * 1. MyApp.apk into /system/priv-app/MyApp
++ * 2. MyApp into /system/priv-app
++ * 3. priv-app into /system (if needed)
++ */
++static void nomount_auto_inject_parent_recursive(const char *v_path, unsigned char type)
 +{
 +	char *parent_path, *name, *path_copy, *last_slash;
 +	struct nomount_dir_node *dir_node = NULL, *curr;
 +	struct nomount_child_name *child;
++	struct path sys_path;
 +	u32 hash;
 +	bool child_exists = false;
++	bool parent_exists_on_disk = false;
 +
 +	path_copy = kstrdup(v_path, GFP_KERNEL);
 +	if (!path_copy) return;
@@ -585,6 +905,13 @@ index 000000000..43ca3f0fa
 +	*last_slash = '\0';
 +	parent_path = path_copy;
 +	name = last_slash + 1;
++
++	/* Check if parent directory already exists on disk */
++	if (kern_path(parent_path, LOOKUP_FOLLOW, &sys_path) == 0) {
++		parent_exists_on_disk = true;
++		path_put(&sys_path);
++	}
++
 +	hash = full_name_hash(NULL, parent_path, strlen(parent_path));
 +
 +	spin_lock(&nomount_lock);
@@ -616,13 +943,23 @@ index 000000000..43ca3f0fa
 +		child = kzalloc(sizeof(*child), GFP_ATOMIC);
 +		if (child) {
 +			child->name = kstrdup(name, GFP_ATOMIC);
-+			child->d_type = (type == DT_DIR) ? 4 : 8; 
++			child->d_type = (type == DT_DIR) ? 4 : 8;
 +			list_add_tail_rcu(&child->list, &dir_node->children_names);
 +		}
 +	}
 +
 +unlock_out:
 +	spin_unlock(&nomount_lock);
++
++	/*
++	 * CRITICAL: Recursively inject parent directories up the tree
++	 * If parent doesn't exist on disk, we need to inject it into its parent too
++	 * This ensures /system/priv-app/MyApp is visible when scanning /system/priv-app
++	 */
++	if (!parent_exists_on_disk && strlen(parent_path) > 1) {
++		nomount_auto_inject_parent_recursive(parent_path, DT_DIR);
++	}
++
 +	kfree(path_copy);
 +}
 +
@@ -686,7 +1023,7 @@ index 000000000..43ca3f0fa
 +	if (data.flags & NM_FLAG_IS_DIR) type = DT_DIR;
 +
 +	if (kern_path(rule->virtual_path, LOOKUP_FOLLOW, &path) != 0) {
-+		nomount_auto_inject_parent(rule->virtual_path, type);
++		nomount_auto_inject_parent_recursive(rule->virtual_path, type);
 +		rule->is_new = true;
 +	}
 +	nomount_flush_dcache(rule->virtual_path);
@@ -746,19 +1083,17 @@ index 000000000..43ca3f0fa
 +
 +	hash_for_each_safe(nomount_uid_ht, bkt, tmp, uid_node, node) {
 +		hash_del_rcu(&uid_node->node);
-+		kfree(uid_node);
++		kfree_rcu(uid_node, rcu);
 +	}
 +
-+	/* Clear directory injection cache */
++	/* Clear directory injection cache with proper RCU callbacks */
 +	hash_for_each_safe(nomount_dirs_ht, bkt, tmp, dir_node, node) {
 +		list_for_each_entry_safe(child, tmp_child, &dir_node->children_names, list) {
 +			list_del_rcu(&child->list);
-+			kfree(child->name);
-+			kfree(child);
++			call_rcu(&child->rcu, nomount_free_child_rcu);
 +		}
 +		hash_del_rcu(&dir_node->node);
-+		kfree(dir_node->dir_path);
-+		kfree(dir_node);
++		call_rcu(&dir_node->rcu, nomount_free_dir_rcu);
 +	}
 +
 +	/* CRITICAL: Reset inode cache to fix tainted state */
@@ -849,18 +1184,22 @@ index 000000000..43ca3f0fa
 +	spin_unlock(&nomount_lock);
 +
 +	if (found && entry) {
-+		kfree(entry); 
++		kfree_rcu(entry, rcu);
 +	}
 +
 +	return found ? 0 : -ENOENT;
 +}
 +
-+/* Hide /dev/nomount from non-root processes */
++/* Restrict /dev/vfs_helper to root processes only */
 +static int nomount_dev_open(struct inode *inode, struct file *file)
 +{
-+	/* Return ENOENT for non-root - device appears to not exist */
++	/*
++	 * Return EPERM for non-root - semantically consistent with file existing
++	 * but access denied. Using ENOENT would be detectable since stat() shows
++	 * the file exists.
++	 */
 +	if (!nomount_is_root_caller()) {
-+		return -ENOENT;
++		return -EPERM;
 +	}
 +	return 0;
 +}
@@ -891,7 +1230,7 @@ index 000000000..43ca3f0fa
 +};
 +
 +static struct miscdevice nomount_device = {
-+	.minor = MISC_DYNAMIC_MINOR, .name = "nomount", .fops = &nomount_fops, .mode = 0600,
++	.minor = MISC_DYNAMIC_MINOR, .name = "vfs_helper", .fops = &nomount_fops, .mode = 0600,
 +};
 +
 +static int __init nomount_init(void) {
@@ -899,7 +1238,7 @@ index 000000000..43ca3f0fa
 +	spin_lock_init(&nomount_lock);
 +	ret = misc_register(&nomount_device);
 +	if (ret) return ret;
-+	pr_info("NoMount: Loaded\n");
++	/* No log message to avoid detection */
 +	return 0;
 +}
 +fs_initcall(nomount_init);
@@ -912,8 +1251,8 @@ index 09e8ed7d4..dd3c6869c 100644
  #include <linux/unistd.h>
  #include <linux/compat.h>
  #include <linux/uaccess.h>
-+#ifdef CONFIG_NOMOUNT
-+#include <linux/nomount.h>
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++#include <linux/vfs_dcache.h>
 +#endif
  
  #include <asm/unaligned.h>
@@ -922,7 +1261,7 @@ index 09e8ed7d4..dd3c6869c 100644
  		.current_dir = dirent
  	};
  	int error;
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	int initial_count = count;
 +#endif
  
@@ -930,7 +1269,7 @@ index 09e8ed7d4..dd3c6869c 100644
  	if (!f.file)
  		return -EBADF;
  
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	if (f.file->f_pos >= NOMOUNT_MAGIC_POS) {
 +		error = 0;
 +		goto skip_real_iterate;
@@ -941,7 +1280,7 @@ index 09e8ed7d4..dd3c6869c 100644
  	if (error >= 0)
  		error = buf.error;
 +
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +skip_real_iterate:
 +	if (error >= 0 && !signal_pending(current)) {
 +		nomount_inject_dents(f.file, (void __user **)&dirent, &count, &f.file->f_pos);
@@ -956,7 +1295,7 @@ index 09e8ed7d4..dd3c6869c 100644
  		.current_dir = dirent
  	};
  	int error;
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	int initial_count = count;
 +#endif
  
@@ -964,7 +1303,7 @@ index 09e8ed7d4..dd3c6869c 100644
  	if (!f.file)
  		return -EBADF;
  
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	if (f.file->f_pos >= NOMOUNT_MAGIC_POS) {
 +		error = 0;
 +		goto skip_real_iterate;
@@ -975,7 +1314,7 @@ index 09e8ed7d4..dd3c6869c 100644
  	if (error >= 0)
  		error = buf.error;
 +
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +skip_real_iterate:
 +	if (error >= 0 && !signal_pending(current)) {
 +		nomount_inject_dents64(f.file, (void __user **)&dirent, &count, &f.file->f_pos);
@@ -990,7 +1329,7 @@ index 09e8ed7d4..dd3c6869c 100644
  		.count = count
  	};
  	int error;
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	int initial_count = count;
 +#endif
  
@@ -998,7 +1337,7 @@ index 09e8ed7d4..dd3c6869c 100644
  	if (!f.file)
  		return -EBADF;
  
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	if (f.file->f_pos >= NOMOUNT_MAGIC_POS) {
 +		error = 0;
 +		goto skip_real_iterate;
@@ -1009,7 +1348,7 @@ index 09e8ed7d4..dd3c6869c 100644
  	if (error >= 0)
  		error = buf.error;
 +
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +skip_real_iterate:
 +	if (error >= 0 && !signal_pending(current)) {
 +		nomount_inject_dents(f.file, (void __user **)&dirent, &count, &f.file->f_pos);
@@ -1020,14 +1359,99 @@ index 09e8ed7d4..dd3c6869c 100644
  	if (buf.prev_reclen) {
  		struct compat_linux_dirent __user * lastdirent;
  		lastdirent = (void __user *)buf.current_dir - buf.prev_reclen;
-diff --git a/include/linux/nomount.h b/include/linux/nomount.h
+diff --git a/fs/statfs.c b/fs/statfs.c
+index 2616424012..8f3241a372 100644
+--- a/fs/statfs.c
++++ b/fs/statfs.c
+@@ -11,6 +11,10 @@
+ #include <linux/uaccess.h>
+ #include <linux/compat.h>
+
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++#include <linux/vfs_dcache.h>
++#endif
++
+ static int flags_by_mnt(int mnt_flags)
+ {
+ 	int flags = 0;
+@@ -87,6 +91,14 @@ static int vfs_statfs_native(struct dentry *dentry, struct statfs *buf)
+ {
+ 	struct kstatfs st;
+ 	int retval;
++
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++	/* Spoof statfs for injected files */
++	if (dentry->d_inode && nomount_is_injected_file(dentry->d_inode)) {
++		if (nomount_spoof_statfs(dentry->d_inode, &st) == 0)
++			goto copy_result;
++	}
++#endif
+
+ 	retval = vfs_statfs(dentry, &st);
+ 	if (retval)
+@@ -94,6 +106,7 @@ static int vfs_statfs_native(struct dentry *dentry, struct statfs *buf)
+
+ 	if (sizeof(*buf) == sizeof(st))
+ 		memcpy(buf, &st, sizeof(st));
++copy_result:
+ 	else {
+ 		buf->f_type = st.f_type;
+ 		buf->f_bsize = st.f_bsize;
+@@ -120,6 +133,14 @@ static int vfs_statfs64(struct dentry *dentry, struct statfs64 *buf)
+ {
+ 	struct kstatfs st;
+ 	int retval;
++
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++	/* Spoof statfs64 for injected files */
++	if (dentry->d_inode && nomount_is_injected_file(dentry->d_inode)) {
++		if (nomount_spoof_statfs(dentry->d_inode, &st) == 0)
++			goto copy_result64;
++	}
++#endif
+
+ 	retval = vfs_statfs(dentry, &st);
+ 	if (retval)
+@@ -127,6 +148,7 @@ static int vfs_statfs64(struct dentry *dentry, struct statfs64 *buf)
+
+ 	if (sizeof(*buf) == sizeof(st))
+ 		memcpy(buf, &st, sizeof(st));
++copy_result64:
+ 	else {
+ 		buf->f_type = st.f_type;
+ 		buf->f_bsize = st.f_bsize;
+diff --git a/include/linux/vfs_dcache.h b/include/linux/vfs_dcache.h
 new file mode 100644
 index 000000000..9e0fb1b21
 --- /dev/null
-+++ b/include/linux/nomount.h
++++ b/include/linux/vfs_dcache.h
 @@ -0,0 +1,99 @@
-+#ifndef _LINUX_NOMOUNT_H
-+#define _LINUX_NOMOUNT_H
++#ifndef _LINUX_VFS_DCACHE_H
++#define _LINUX_VFS_DCACHE_H
++
++/*
++ * Symbol obfuscation: Rename all exported symbols to innocuous names
++ * This prevents detection via /proc/kallsyms scanning for "nomount"
++ */
++#define nomount_enabled              vfs_dcache_enabled
++#define nomount_resolve_path         vfs_dcache_resolve
++#define nomount_getname_hook         vfs_dcache_getname
++#define nomount_inject_dents64       vfs_dcache_inject64
++#define nomount_inject_dents         vfs_dcache_inject
++#define nomount_get_virtual_path_for_inode  vfs_dcache_get_vpath
++#define nomount_is_traversal_allowed vfs_dcache_traverse_ok
++#define nomount_is_injected_file     vfs_dcache_is_injected
++#define nomount_spoof_stat           vfs_dcache_fill_stat
++#define nomount_get_spoofed_selinux_context vfs_dcache_get_ctx
++#define nomount_spoof_statfs         vfs_dcache_fill_statfs
++#define nomount_is_uid_blocked       vfs_dcache_uid_blocked
++#define nomount_match_path           vfs_dcache_match
++/* Internal data structure obfuscation */
++#define nomount_rules_ht             vfs_dcache_rules_ht
++#define nomount_dirs_ht              vfs_dcache_dirs_ht
++#define nomount_uid_ht               vfs_dcache_uid_ht
++#define nomount_rules_list           vfs_dcache_rules_list
++#define nomount_lock                 vfs_dcache_lock
 +
 +#include <linux/types.h>
 +#include <linux/list.h>
@@ -1045,7 +1469,7 @@ index 000000000..9e0fb1b21
 +#define NOMOUNT_HASH_BITS  10
 +#define NM_FLAG_ACTIVE        (1 << 0)
 +#define NM_FLAG_IS_DIR        (1 << 7)
-+#define NOMOUNT_MAGIC_POS 0x7000000
++#define NOMOUNT_MAGIC_POS 0x7000000000000000ULL
 +#define NOMOUNT_IOC_MAGIC  NOMOUNT_MAGIC_CODE
 +#define NOMOUNT_IOC_ADD_RULE    _IOW(NOMOUNT_IOC_MAGIC, 1, struct nomount_ioctl_data)
 +#define NOMOUNT_IOC_DEL_RULE    _IOW(NOMOUNT_IOC_MAGIC, 2, struct nomount_ioctl_data)
@@ -1060,6 +1484,7 @@ index 000000000..9e0fb1b21
 +	char __user *virtual_path;
 +	char __user *real_path;
 +	unsigned int flags;
++	unsigned int _pad;  /* Alignment padding for userspace ioctl compat */
 +};
 +
 +struct nomount_rule {
@@ -1102,7 +1527,7 @@ index 000000000..9e0fb1b21
 +extern struct list_head nomount_rules_list;
 +extern spinlock_t nomount_lock;
 +
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +extern atomic_t nomount_enabled;
 +
 +char *nomount_resolve_path(const char *pathname);
@@ -1113,6 +1538,8 @@ index 000000000..9e0fb1b21
 +bool nomount_is_traversal_allowed(struct inode *inode, int mask);
 +bool nomount_is_injected_file(struct inode *inode);
 +void nomount_spoof_stat(struct inode *inode, struct kstat *stat);
++const char *nomount_get_spoofed_selinux_context(struct inode *inode);
++int nomount_spoof_statfs(struct inode *inode, struct kstatfs *buf);
 +#else
 +static inline char *nomount_resolve_path(const char *p) { return NULL; }
 +static inline struct filename *nomount_getname_hook(struct filename *name) { return name; }
@@ -1122,10 +1549,79 @@ index 000000000..9e0fb1b21
 +static inline bool nomount_is_traversal_allowed(struct inode *inode, int mask) { return false; }
 +static inline bool nomount_is_injected_file(struct inode *inode) { return false; }
 +static inline void nomount_spoof_stat(struct inode *inode, struct kstat *stat) {}
++static inline const char *nomount_get_spoofed_selinux_context(struct inode *inode) { return NULL; }
++static inline int nomount_spoof_statfs(struct inode *inode, struct kstatfs *buf) { return -EINVAL; }
 +#endif
 +
-+#endif /* _LINUX_NOMOUNT_H */
++#endif /* _LINUX_VFS_DCACHE_H */
 
+diff --git a/fs/xattr.c b/fs/xattr.c
+index 91d3e68bc..f8e2c9a01 100644
+--- a/fs/xattr.c
++++ b/fs/xattr.c
+@@ -23,6 +23,10 @@
+
+ #include <linux/uaccess.h>
+
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++#include <linux/vfs_dcache.h>
++#endif
++
+ static const char *
+ strcmp_prefix(const char *a, const char *a_prefix)
+ {
+@@ -264,6 +268,25 @@ vfs_getxattr(struct dentry *dentry, const char *name, void *value, size_t size)
+ 	if (error)
+ 		return error;
+
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++	/* Spoof SELinux context for injected files */
++	if (strcmp(name, XATTR_NAME_SELINUX) == 0 && dentry->d_inode) {
++		const char *spoofed = nomount_get_spoofed_selinux_context(dentry->d_inode);
++		if (spoofed) {
++			size_t ctx_len = strlen(spoofed) + 1;
++			if (size == 0)
++				return ctx_len;
++			if (size < ctx_len)
++				return -ERANGE;
++			if (value) {
++				memcpy(value, spoofed, ctx_len);
++				return ctx_len;
++			}
++			return ctx_len;
++		}
++	}
++#endif
++
+ 	error = __vfs_getxattr(dentry, dentry->d_inode, name, value, size);
+ 	return error;
+ }
+@@ -330,6 +353,24 @@ vfs_listxattr(struct dentry *dentry, char *list, size_t size)
+ {
+ 	struct inode *inode = d_inode(dentry);
+ 	ssize_t error;
+
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++	/* Spoof xattr list for injected files - return only security.selinux */
++	if (nomount_is_injected_file(inode)) {
++		/* Stock Android system files have security.selinux xattr */
++		static const char spoofed_list[] = XATTR_NAME_SELINUX;
++		size_t list_len = sizeof(spoofed_list);
++
++		if (size == 0)
++			return list_len;
++		if (size < list_len)
++			return -ERANGE;
++		if (!list)
++			return -EFAULT;
++		memcpy(list, spoofed_list, list_len);
++		return list_len;
++	}
++#endif
++
+ 	error = security_inode_listxattr(dentry);
+ 	if (error)
+ 		return error;
 diff --git a/fs/stat.c b/fs/stat.c
 index 1fa38bca2..9c73de2f4 100644
 --- a/fs/stat.c
@@ -1134,8 +1630,8 @@ index 1fa38bca2..9c73de2f4 100644
  #include <linux/uaccess.h>
  #include <asm/unaligned.h>
 
-+#ifdef CONFIG_NOMOUNT
-+#include <linux/nomount.h>
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++#include <linux/vfs_dcache.h>
 +#endif
 +
  /**
@@ -1146,7 +1642,7 @@ index 1fa38bca2..9c73de2f4 100644
  	stat->dev = inode->i_sb->s_dev;
  	stat->ino = inode->i_ino;
 +
-+#ifdef CONFIG_NOMOUNT
++#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	if (nomount_is_injected_file(inode))
 +		nomount_spoof_stat(inode, stat);
 +#endif

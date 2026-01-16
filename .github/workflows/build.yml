@@ -598,10 +598,48 @@ jobs:
           sed -i '/#include <linux\/nomount.h>/a #endif' fs/namei.c
         fi
 
+        # Fix vfs_readlink hook if not applied (Hunk #5 fails due to SUSFS line shift)
+        if ! grep -q "nomount_sanitize_readlink\|nomount_is_injected_file.*vfs_readlink" fs/namei.c; then
+          echo "Adding NoMount vfs_readlink hook via sed (SUSFS compatibility fix)..."
+          # Find vfs_readlink function and locate "int res;" to insert after declarations
+          VFS_READLINK_LINE=$(grep -n "^int vfs_readlink" fs/namei.c | head -1 | cut -d: -f1)
+          if [ -n "$VFS_READLINK_LINE" ]; then
+            # Find "int res;" within the function (must insert after variable declarations in C)
+            RES_LINE=$(awk -v start="$VFS_READLINK_LINE" 'NR>=start && NR<=start+10 && /int res;/ {print NR; exit}' fs/namei.c)
+            if [ -n "$RES_LINE" ]; then
+              # Insert the sanitization code after variable declarations
+              sed -i "${RES_LINE}a\\
+\\
+#ifdef CONFIG_NOMOUNT\\
+\t/* Sanitize symlink targets for injected files */\\
+\tif (dentry && dentry->d_inode && nomount_is_injected_file(dentry->d_inode)) {\\
+\t\tconst char *nm_link = dentry->d_inode->i_link;\\
+\t\tif (nm_link) {\\
+\t\t\tconst char *sys = strstr(nm_link, \"/system\");\\
+\t\t\tif (!sys) sys = strstr(nm_link, \"/vendor\");\\
+\t\t\tif (!sys) sys = strstr(nm_link, \"/product\");\\
+\t\t\tif (sys && strlen(sys) < buflen) {\\
+\t\t\t\tif (copy_to_user(buffer, sys, strlen(sys) + 1) == 0)\\
+\t\t\t\t\treturn strlen(sys);\\
+\t\t\t}\\
+\t\t}\\
+\t}\\
+#endif" fs/namei.c
+              echo "SUCCESS: vfs_readlink hook added after line $RES_LINE"
+            else
+              echo "WARNING: Could not find 'int res;' in vfs_readlink function"
+            fi
+          else
+            echo "WARNING: vfs_readlink function not found in fs/namei.c"
+          fi
+        else
+          echo "SUCCESS: vfs_readlink hook already present"
+        fi
+
         # Check if NoMount hooks exist in readdir.c
-        # If not, the patch conflicts with SUSFS - add hooks via inline sed
-        if grep -q "nomount_inject_dents64" fs/readdir.c; then
-          echo "SUCCESS: NoMount hooks already present in fs/readdir.c"
+        # Use specific check to avoid double-injection from partial patch + sed fallback
+        if grep -q "int initial_count" fs/readdir.c || grep -q "nomount_inject_dents64" fs/readdir.c; then
+          echo "SUCCESS: NoMount hooks already present in fs/readdir.c (skipping sed fallback)"
         else
           echo "WARNING: NoMount hooks not in readdir.c - adding via inline sed..."
 
@@ -612,60 +650,53 @@ jobs:
           fi
 
           # Step 2: Add hooks to getdents64 syscall (the most commonly used)
-          # Find "SYSCALL_DEFINE3(getdents64" and add initial_count after "int error;"
-          if ! grep -q "initial_count.*getdents64\|nomount_inject_dents64" fs/readdir.c; then
-            echo "Adding NoMount hooks to getdents64..."
-            # Add initial_count variable after "int error;" in getdents64 block
-            sed -i '/SYSCALL_DEFINE3(getdents64/,/^}$/{
-              /int error;/a #ifdef CONFIG_NOMOUNT\n\tint initial_count = count;\n#endif
-            }' fs/readdir.c
+          echo "Adding NoMount hooks to getdents64..."
+          # Add initial_count variable after "int error;" in getdents64 block
+          sed -i '/SYSCALL_DEFINE3(getdents64/,/^}$/{
+            /int error;/a #ifdef CONFIG_NOMOUNT\n\tint initial_count = count;\n#endif
+          }' fs/readdir.c
 
-            # Add skip_real_iterate check before iterate_dir in getdents64
-            sed -i '/SYSCALL_DEFINE3(getdents64/,/^}$/{
-              /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_NOMOUNT\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
-            }' fs/readdir.c
+          # Add skip_real_iterate check before iterate_dir in getdents64
+          sed -i '/SYSCALL_DEFINE3(getdents64/,/^}$/{
+            /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_NOMOUNT\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
+          }' fs/readdir.c
 
-            # Add injection call after "error = buf.error;" in getdents64
-            sed -i '/SYSCALL_DEFINE3(getdents64/,/^}$/{
-              /error = buf.error;/a #ifdef CONFIG_NOMOUNT\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents64(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
-            }' fs/readdir.c
-          fi
+          # Add injection call after "error = buf.error;" in getdents64
+          sed -i '/SYSCALL_DEFINE3(getdents64/,/^}$/{
+            /error = buf.error;/a #ifdef CONFIG_NOMOUNT\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents64(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
+          }' fs/readdir.c
 
           # Step 3: Add hooks to getdents syscall (legacy 32-bit)
-          if ! grep -q "nomount_inject_dents\b" fs/readdir.c; then
-            echo "Adding NoMount hooks to getdents..."
-            # Add initial_count variable after "int error;" in getdents block
-            sed -i '/SYSCALL_DEFINE3(getdents, unsigned int, fd/,/^}$/{
-              /int error;/a #ifdef CONFIG_NOMOUNT\n\tint initial_count = count;\n#endif
-            }' fs/readdir.c
+          echo "Adding NoMount hooks to getdents..."
+          # Add initial_count variable after "int error;" in getdents block
+          sed -i '/SYSCALL_DEFINE3(getdents, unsigned int, fd/,/^}$/{
+            /int error;/a #ifdef CONFIG_NOMOUNT\n\tint initial_count = count;\n#endif
+          }' fs/readdir.c
 
-            # Add skip_real_iterate check before iterate_dir in getdents
-            sed -i '/SYSCALL_DEFINE3(getdents, unsigned int, fd/,/^}$/{
-              /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_NOMOUNT\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
-            }' fs/readdir.c
+          # Add skip_real_iterate check before iterate_dir in getdents
+          sed -i '/SYSCALL_DEFINE3(getdents, unsigned int, fd/,/^}$/{
+            /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_NOMOUNT\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
+          }' fs/readdir.c
 
-            # Add injection call after "error = buf.error;" in getdents
-            sed -i '/SYSCALL_DEFINE3(getdents, unsigned int, fd/,/^}$/{
-              /error = buf.error;/a #ifdef CONFIG_NOMOUNT\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
-            }' fs/readdir.c
-          fi
+          # Add injection call after "error = buf.error;" in getdents
+          sed -i '/SYSCALL_DEFINE3(getdents, unsigned int, fd/,/^}$/{
+            /error = buf.error;/a #ifdef CONFIG_NOMOUNT\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
+          }' fs/readdir.c
 
           # Step 4: Add hooks to compat_getdents syscall (32-bit compat layer)
           if grep -q "COMPAT_SYSCALL_DEFINE3(getdents" fs/readdir.c; then
-            if ! grep -B50 "COMPAT_SYSCALL_DEFINE3(getdents" fs/readdir.c | grep -q "nomount_inject_dents"; then
-              echo "Adding NoMount hooks to compat_getdents..."
-              sed -i '/COMPAT_SYSCALL_DEFINE3(getdents/,/^}$/{
-                /int error;/a #ifdef CONFIG_NOMOUNT\n\tint initial_count = count;\n#endif
-              }' fs/readdir.c
+            echo "Adding NoMount hooks to compat_getdents..."
+            sed -i '/COMPAT_SYSCALL_DEFINE3(getdents/,/^}$/{
+              /int error;/a #ifdef CONFIG_NOMOUNT\n\tint initial_count = count;\n#endif
+            }' fs/readdir.c
 
-              sed -i '/COMPAT_SYSCALL_DEFINE3(getdents/,/^}$/{
-                /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_NOMOUNT\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
-              }' fs/readdir.c
+            sed -i '/COMPAT_SYSCALL_DEFINE3(getdents/,/^}$/{
+              /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_NOMOUNT\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
+            }' fs/readdir.c
 
-              sed -i '/COMPAT_SYSCALL_DEFINE3(getdents/,/^}$/{
-                /error = buf.error;/a #ifdef CONFIG_NOMOUNT\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
-              }' fs/readdir.c
-            fi
+            sed -i '/COMPAT_SYSCALL_DEFINE3(getdents/,/^}$/{
+              /error = buf.error;/a #ifdef CONFIG_NOMOUNT\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
+            }' fs/readdir.c
           fi
 
           # Verify the fix was applied
