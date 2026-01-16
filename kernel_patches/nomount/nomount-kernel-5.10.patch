@@ -1585,7 +1585,7 @@ index 91d3e68bc..f8e2c9a01 100644
 +			if (size < ctx_len)
 +				return -ERANGE;
 +			if (value) {
-+				memcpy(value, spoofed, ctx_len);
++				memcpy((void *)value, spoofed, ctx_len);
 +				return ctx_len;
 +			}
 +			return ctx_len;
