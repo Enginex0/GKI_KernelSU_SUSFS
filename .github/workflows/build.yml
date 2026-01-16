@@ -1119,6 +1119,56 @@ jobs:
         git add .
         git commit -m "Clean build flags" || true
 
+    - name: Set Stock Build Identity
+      working-directory: ${{ env.KERNEL_ROOT }}/common
+      run: |
+        echo "=== Setting Stock Build Identity ==="
+
+        # Use Google's standard GKI build identity
+        STOCK_BUILD_USER="build-user"
+        STOCK_BUILD_HOST="build-host"
+
+        # Get stock timestamp from os_patch_level (format: YYYY-MM)
+        # Convert to a realistic stock build date (15th of the month, 12:00:00 UTC)
+        PATCH_YEAR=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f1)
+        PATCH_MONTH=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f2)
+
+        # Calculate day of week for the 15th of that month
+        STOCK_DATE="${PATCH_YEAR}-${PATCH_MONTH}-15 12:00:00 UTC"
+        STOCK_TIMESTAMP=$(date -d "$STOCK_DATE" "+%a %b %d %H:%M:%S UTC %Y" 2>/dev/null || date -u "+%a %b %d %H:%M:%S UTC %Y")
+        STOCK_VERSION_STRING="#1 SMP PREEMPT $STOCK_TIMESTAMP"
+
+        echo "Stock identity: $STOCK_VERSION_STRING"
+        echo "Build user: $STOCK_BUILD_USER"
+        echo "Build host: $STOCK_BUILD_HOST"
+
+        # Method 1: Patch mkcompile_h for older kernels (5.x, 6.1)
+        if [ -f "scripts/mkcompile_h" ]; then
+          echo "Patching scripts/mkcompile_h..."
+
+          # Set UTS_VERSION to stock timestamp
+          sed -i "s|UTS_VERSION=.*|UTS_VERSION=\"$STOCK_VERSION_STRING\"|" scripts/mkcompile_h
+
+          # Set build user and host
+          if grep -q "LINUX_COMPILE_BY=" scripts/mkcompile_h; then
+            sed -i "s|LINUX_COMPILE_BY=.*|LINUX_COMPILE_BY=\"$STOCK_BUILD_USER\"|" scripts/mkcompile_h
+            sed -i "s|LINUX_COMPILE_HOST=.*|LINUX_COMPILE_HOST=\"$STOCK_BUILD_HOST\"|" scripts/mkcompile_h
+          fi
+        fi
+
+        # Method 2: Patch init/Makefile for newer kernels (6.6+)
+        if [ -f "init/Makefile" ] && grep -q "build-timestamp" init/Makefile; then
+          echo "Patching init/Makefile for kernel 6.x..."
+          sed -i "s|build-timestamp = .*|build-timestamp = \"$STOCK_TIMESTAMP\"|" init/Makefile
+        fi
+
+        # Method 3: Export KBUILD variables (backup)
+        echo "KBUILD_BUILD_TIMESTAMP=$STOCK_TIMESTAMP" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_USER=$STOCK_BUILD_USER" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_HOST=$STOCK_BUILD_HOST" >> $GITHUB_ENV
+
+        echo "=== Stock build identity set ==="
+
     - name: Build Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
