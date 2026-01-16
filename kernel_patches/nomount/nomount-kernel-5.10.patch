@@ -38,7 +38,7 @@ index a69e2cd36..8d52e7b00 100644
  static int prepend(char **buffer, int *buflen, const char *str, int namelen)
  {
  	*buflen -= namelen;
-@@ -265,6 +269,26 @@ char *d_path(const struct path *path, char *buf, int buflen)
+@@ -265,6 +269,28 @@ char *d_path(const struct path *path, char *buf, int buflen)
  	struct path root;
  	int error;
  
