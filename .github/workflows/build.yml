@@ -627,72 +627,27 @@ jobs:
 
         # Check if NoMount hooks exist in readdir.c
         # Use specific check to avoid double-injection from partial patch + sed fallback
-        if grep -q "int initial_count" fs/readdir.c || grep -q "nomount_inject_dents64" fs/readdir.c; then
-          echo "SUCCESS: NoMount hooks already present in fs/readdir.c (skipping sed fallback)"
+        if grep -q "nomount_inject_dents64" fs/readdir.c; then
+          echo "SUCCESS: NoMount hooks already present in fs/readdir.c (skipping fallback)"
         else
-          echo "WARNING: NoMount hooks not in readdir.c - adding via inline sed..."
+          echo "WARNING: NoMount hooks not in readdir.c - adding via awk..."
 
           # Step 1: Add the include if missing (uses vfs_dcache.h)
           if ! grep -q "linux/vfs_dcache.h" fs/readdir.c; then
             echo "Adding vfs_dcache.h include..."
-            sed -i '/#include <linux\/uaccess.h>/a #ifdef CONFIG_FS_DCACHE_PREFETCH\n#include <linux\/vfs_dcache.h>\n#endif' fs/readdir.c
+            awk '/#include <linux\/uaccess.h>/{print; print "#ifdef CONFIG_FS_DCACHE_PREFETCH"; print "#include <linux/vfs_dcache.h>"; print "#endif"; next}1' fs/readdir.c > /tmp/readdir_new.c && mv /tmp/readdir_new.c fs/readdir.c
           fi
 
-          # Step 2: Add hooks to getdents64 syscall (the most commonly used)
-          echo "Adding NoMount hooks to getdents64..."
-          # Add initial_count variable after "int error;" in getdents64 block
-          sed -i '/SYSCALL_DEFINE3(getdents64/,/^}$/{
-            /int error;/a #ifdef CONFIG_FS_DCACHE_PREFETCH\n\tint initial_count = count;\n#endif
-          }' fs/readdir.c
-
-          # Add skip_real_iterate check before iterate_dir in getdents64
-          sed -i '/SYSCALL_DEFINE3(getdents64/,/^}$/{
-            /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_FS_DCACHE_PREFETCH\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
-          }' fs/readdir.c
-
-          # Add injection call after "error = buf.error;" in getdents64
-          sed -i '/SYSCALL_DEFINE3(getdents64/,/^}$/{
-            /error = buf.error;/a #ifdef CONFIG_FS_DCACHE_PREFETCH\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents64(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
-          }' fs/readdir.c
-
-          # Step 3: Add hooks to getdents syscall (legacy 32-bit)
-          echo "Adding NoMount hooks to getdents..."
-          # Add initial_count variable after "int error;" in getdents block
-          sed -i '/SYSCALL_DEFINE3(getdents, unsigned int, fd/,/^}$/{
-            /int error;/a #ifdef CONFIG_FS_DCACHE_PREFETCH\n\tint initial_count = count;\n#endif
-          }' fs/readdir.c
-
-          # Add skip_real_iterate check before iterate_dir in getdents
-          sed -i '/SYSCALL_DEFINE3(getdents, unsigned int, fd/,/^}$/{
-            /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_FS_DCACHE_PREFETCH\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
-          }' fs/readdir.c
-
-          # Add injection call after "error = buf.error;" in getdents
-          sed -i '/SYSCALL_DEFINE3(getdents, unsigned int, fd/,/^}$/{
-            /error = buf.error;/a #ifdef CONFIG_FS_DCACHE_PREFETCH\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
-          }' fs/readdir.c
-
-          # Step 4: Add hooks to compat_getdents syscall (32-bit compat layer)
-          if grep -q "COMPAT_SYSCALL_DEFINE3(getdents" fs/readdir.c; then
-            echo "Adding NoMount hooks to compat_getdents..."
-            sed -i '/COMPAT_SYSCALL_DEFINE3(getdents/,/^}$/{
-              /int error;/a #ifdef CONFIG_FS_DCACHE_PREFETCH\n\tint initial_count = count;\n#endif
-            }' fs/readdir.c
-
-            sed -i '/COMPAT_SYSCALL_DEFINE3(getdents/,/^}$/{
-              /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_FS_DCACHE_PREFETCH\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
-            }' fs/readdir.c
-
-            sed -i '/COMPAT_SYSCALL_DEFINE3(getdents/,/^}$/{
-              /error = buf.error;/a #ifdef CONFIG_FS_DCACHE_PREFETCH\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
-            }' fs/readdir.c
-          fi
+          # Step 2: Create awk script from base64 (avoids YAML/heredoc escaping issues)
+          echo "Adding NoMount hooks to getdents64 via awk..."
+          echo 'L1NZU0NBTExfREVGSU5FM1woZ2V0ZGVudHM2NC8geyBpbl9nZXRkZW50czY0PTEgfQppbl9nZXRkZW50czY0ICYmIC9pbnQgZXJyb3I7LyAmJiAhYWRkZWRfaW5pdDY0IHsKICBwcmludAogIHByaW50ICIjaWZkZWYgQ09ORklHX0ZTX0RDQUNIRV9QUkVGRVRDSCIKICBwcmludCAiXHRpbnQgaW5pdGlhbF9jb3VudCA9IGNvdW50OyIKICBwcmludCAiI2VuZGlmIgogIGFkZGVkX2luaXQ2ND0xCiAgbmV4dAp9CmluX2dldGRlbnRzNjQgJiYgL2Vycm9yID0gaXRlcmF0ZV9kaXJcKGZcLmZpbGUsICZidWZcLmN0eFwpOy8gJiYgIWFkZGVkX3NraXA2NCB7CiAgcHJpbnQgIiNpZmRlZiBDT05GSUdfRlNfRENBQ0hFX1BSRUZFVENIIgogIHByaW50ICJcdGlmIChmLmZpbGUtPmZfcG9zID49IE5PTU9VTlRfTUFHSUNfUE9TKSB7IgogIHByaW50ICJcdFx0ZXJyb3IgPSAwOyIKICBwcmludCAiXHRcdGdvdG8gc2tpcF9yZWFsX2l0ZXJhdGU7IgogIHByaW50ICJcdH0iCiAgcHJpbnQgIiNlbmRpZiIKICBhZGRlZF9za2lwNjQ9MQp9CmluX2dldGRlbnRzNjQgJiYgL2Vycm9yID0gYnVmXC5lcnJvcjsvICYmICFhZGRlZF9pbmplY3Q2NCB7CiAgcHJpbnQKICBwcmludCAiI2lmZGVmIENPTkZJR19GU19EQ0FDSEVfUFJFRkVUQ0giCiAgcHJpbnQgInNraXBfcmVhbF9pdGVyYXRlOiIKICBwcmludCAiXHRpZiAoZXJyb3IgPj0gMCAmJiAhc2lnbmFsX3BlbmRpbmcoY3VycmVudCkpIHsiCiAgcHJpbnQgIlx0XHRub21vdW50X2luamVjdF9kZW50czY0KGYuZmlsZSwgKHZvaWQgX191c2VyICoqKSZkaXJlbnQsICZjb3VudCwgJmYuZmlsZS0+Zl9wb3MpOyIKICBwcmludCAiXHRcdGVycm9yID0gaW5pdGlhbF9jb3VudCAtIGNvdW50OyIKICBwcmludCAiXHR9IgogIHByaW50ICIjZW5kaWYiCiAgYWRkZWRfaW5qZWN0NjQ9MQogIG5leHQKfQppbl9nZXRkZW50czY0ICYmIC9efSQvIHsgaW5fZ2V0ZGVudHM2ND0wIH0KeyBwcmludCB9Cg==' | base64 -d > /tmp/readdir_hook.awk
+          awk -f /tmp/readdir_hook.awk fs/readdir.c > /tmp/readdir_new.c && mv /tmp/readdir_new.c fs/readdir.c
 
           # Verify the fix was applied
           if grep -q "nomount_inject_dents64" fs/readdir.c; then
             echo "SUCCESS: NoMount hooks added to fs/readdir.c"
           else
-            echo "WARNING: NoMount hooks may be incomplete - manual review recommended"
+            echo "WARNING: NoMount readdir hooks not applied - patch may have conflicts"
           fi
         fi
 
