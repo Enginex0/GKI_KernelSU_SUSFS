@@ -96,7 +96,7 @@ index 40e10b159..37b6954fc 100644
  	return result;
  }
  
-@@ -350,6 +361,16 @@ int generic_permission(struct inode *inode, int mask)
+@@ -350,6 +361,14 @@ int generic_permission(struct inode *inode, int mask)
  {
  	int ret;
  
@@ -111,7 +111,7 @@ index 40e10b159..37b6954fc 100644
  	/*
  	 * Do the basic permission checks.
  	 */
-@@ -443,6 +464,16 @@ int inode_permission(struct inode *inode, int mask)
+@@ -443,6 +454,14 @@ int inode_permission(struct inode *inode, int mask)
  {
  	int retval;
  
