@@ -599,32 +599,37 @@ jobs:
         fi
 
         # Fix vfs_readlink hook if not applied (Hunk #5 fails due to SUSFS line shift)
-        if ! grep -q "nomount_sanitize_readlink\|nomount_is_injected_file.*vfs_readlink" fs/namei.c; then
+        if ! grep -q "nomount_is_injected_file" fs/namei.c; then
           echo "Adding NoMount vfs_readlink hook via sed (SUSFS compatibility fix)..."
-          # Find vfs_readlink function and locate "int res;" to insert after declarations
           VFS_READLINK_LINE=$(grep -n "^int vfs_readlink" fs/namei.c | head -1 | cut -d: -f1)
           if [ -n "$VFS_READLINK_LINE" ]; then
-            # Find "int res;" within the function (must insert after variable declarations in C)
             RES_LINE=$(awk -v start="$VFS_READLINK_LINE" 'NR>=start && NR<=start+10 && /int res;/ {print NR; exit}' fs/namei.c)
             if [ -n "$RES_LINE" ]; then
-              # Insert the sanitization code after variable declarations
-              sed -i "${RES_LINE}a\\
-\\
-#ifdef CONFIG_NOMOUNT\\
-\t/* Sanitize symlink targets for injected files */\\
-\tif (dentry && dentry->d_inode && nomount_is_injected_file(dentry->d_inode)) {\\
-\t\tconst char *nm_link = dentry->d_inode->i_link;\\
-\t\tif (nm_link) {\\
-\t\t\tconst char *sys = strstr(nm_link, \"/system\");\\
-\t\t\tif (!sys) sys = strstr(nm_link, \"/vendor\");\\
-\t\t\tif (!sys) sys = strstr(nm_link, \"/product\");\\
-\t\t\tif (sys && strlen(sys) < buflen) {\\
-\t\t\t\tif (copy_to_user(buffer, sys, strlen(sys) + 1) == 0)\\
-\t\t\t\t\treturn strlen(sys);\\
-\t\t\t}\\
-\t\t}\\
-\t}\\
-#endif" fs/namei.c
+              # Create temp file with the hook code
+              cat > /tmp/vfs_hook.txt << 'VFSHOOK'
+
+#ifdef CONFIG_NOMOUNT
+	/* Sanitize symlink targets for injected files */
+	if (dentry && dentry->d_inode && nomount_is_injected_file(dentry->d_inode)) {
+		const char *nm_link = dentry->d_inode->i_link;
+		if (nm_link) {
+			const char *sys = strstr(nm_link, "/system");
+			if (!sys) sys = strstr(nm_link, "/vendor");
+			if (!sys) sys = strstr(nm_link, "/product");
+			if (sys && strlen(sys) < buflen) {
+				if (copy_to_user(buffer, sys, strlen(sys) + 1) == 0)
+					return strlen(sys);
+			}
+		}
+	}
+#endif
+VFSHOOK
+              # Insert after RES_LINE
+              head -n "$RES_LINE" fs/namei.c > /tmp/namei_new.c
+              cat /tmp/vfs_hook.txt >> /tmp/namei_new.c
+              tail -n +$((RES_LINE + 1)) fs/namei.c >> /tmp/namei_new.c
+              mv /tmp/namei_new.c fs/namei.c
+              rm -f /tmp/vfs_hook.txt
               echo "SUCCESS: vfs_readlink hook added after line $RES_LINE"
             else
               echo "WARNING: Could not find 'int res;' in vfs_readlink function"
@@ -633,7 +638,7 @@ jobs:
             echo "WARNING: vfs_readlink function not found in fs/namei.c"
           fi
         else
-          echo "SUCCESS: vfs_readlink hook already present"
+          echo "SUCCESS: vfs_readlink hook already present in fs/namei.c"
         fi
 
         # Check if NoMount hooks exist in readdir.c
