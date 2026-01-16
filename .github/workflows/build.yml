@@ -700,6 +700,63 @@ jobs:
           echo "SUCCESS: NoMount stat spoofing hook already present in fs/stat.c"
         fi
 
+        # Fix fs/statfs.c statfs spoofing hooks (removed from patch due to fuzz issues)
+        if ! grep -q "nomount_spoof_statfs" fs/statfs.c; then
+          echo "Applying statfs spoofing hooks to fs/statfs.c"
+          # Add include
+          if ! grep -q "linux/vfs_dcache.h" fs/statfs.c; then
+            COMPAT_LINE=$(grep -n "include <linux/compat.h>" fs/statfs.c | head -1 | cut -d: -f1)
+            if [ -n "$COMPAT_LINE" ]; then
+              sed -i "${COMPAT_LINE}a\\" fs/statfs.c
+              sed -i "$((COMPAT_LINE+1))a #ifdef CONFIG_FS_DCACHE_PREFETCH" fs/statfs.c
+              sed -i "$((COMPAT_LINE+2))a #include <linux/vfs_dcache.h>" fs/statfs.c
+              sed -i "$((COMPAT_LINE+3))a #endif" fs/statfs.c
+            fi
+          fi
+          # Add hook to vfs_statfs_native - find "struct kstatfs st;" and insert after "int retval;"
+          NATIVE_RETVAL=$(awk '/^static int vfs_statfs_native/,/int retval;/ {if(/int retval;/) print NR}' fs/statfs.c)
+          if [ -n "$NATIVE_RETVAL" ]; then
+            sed -i "${NATIVE_RETVAL}a\\" fs/statfs.c
+            sed -i "$((NATIVE_RETVAL+1))a #ifdef CONFIG_FS_DCACHE_PREFETCH" fs/statfs.c
+            sed -i "$((NATIVE_RETVAL+2))a \\	if (dentry->d_inode \\&\\& nomount_is_injected_file(dentry->d_inode)) {" fs/statfs.c
+            sed -i "$((NATIVE_RETVAL+3))a \\		if (nomount_spoof_statfs(dentry->d_inode, \\&st) == 0)" fs/statfs.c
+            sed -i "$((NATIVE_RETVAL+4))a \\			goto copy_result;" fs/statfs.c
+            sed -i "$((NATIVE_RETVAL+5))a \\	}" fs/statfs.c
+            sed -i "$((NATIVE_RETVAL+6))a #endif" fs/statfs.c
+            # Find "memcpy(buf, &st, sizeof(st));" and add label before else
+            MEMCPY_LINE=$(awk '/^static int vfs_statfs_native/,/memcpy\(buf, \&st, sizeof\(st\)\);/ {if(/memcpy\(buf, \&st, sizeof\(st\)\);/) print NR}' fs/statfs.c)
+            if [ -n "$MEMCPY_LINE" ]; then
+              ELSE_LINE=$((MEMCPY_LINE + 1))
+              sed -i "${ELSE_LINE}i copy_result:" fs/statfs.c
+            fi
+            echo "Added statfs spoofing hook to vfs_statfs_native"
+          fi
+          # Add hook to vfs_statfs64
+          STAT64_RETVAL=$(awk '/^static int vfs_statfs64/,/int retval;/ {if(/int retval;/) print NR}' fs/statfs.c)
+          if [ -n "$STAT64_RETVAL" ]; then
+            sed -i "${STAT64_RETVAL}a\\" fs/statfs.c
+            sed -i "$((STAT64_RETVAL+1))a #ifdef CONFIG_FS_DCACHE_PREFETCH" fs/statfs.c
+            sed -i "$((STAT64_RETVAL+2))a \\	if (dentry->d_inode \\&\\& nomount_is_injected_file(dentry->d_inode)) {" fs/statfs.c
+            sed -i "$((STAT64_RETVAL+3))a \\		if (nomount_spoof_statfs(dentry->d_inode, \\&st) == 0)" fs/statfs.c
+            sed -i "$((STAT64_RETVAL+4))a \\			goto copy_result64;" fs/statfs.c
+            sed -i "$((STAT64_RETVAL+5))a \\	}" fs/statfs.c
+            sed -i "$((STAT64_RETVAL+6))a #endif" fs/statfs.c
+            MEMCPY64_LINE=$(awk '/^static int vfs_statfs64/,/memcpy\(buf, \&st, sizeof\(st\)\);/ {if(/memcpy\(buf, \&st, sizeof\(st\)\);/) print NR}' fs/statfs.c)
+            if [ -n "$MEMCPY64_LINE" ]; then
+              ELSE64_LINE=$((MEMCPY64_LINE + 1))
+              sed -i "${ELSE64_LINE}i copy_result64:" fs/statfs.c
+            fi
+            echo "Added statfs spoofing hook to vfs_statfs64"
+          fi
+          if grep -q "nomount_spoof_statfs" fs/statfs.c; then
+            echo "SUCCESS: fs/statfs.c hooks applied"
+          else
+            echo "WARNING: Could not apply fs/statfs.c hooks (non-fatal)"
+          fi
+        else
+          echo "SUCCESS: statfs hooks already present in fs/statfs.c"
+        fi
+
         # Add CONFIG_FS_DCACHE_PREFETCH=y to defconfig
         echo "CONFIG_FS_DCACHE_PREFETCH=y" >> arch/arm64/configs/gki_defconfig
 

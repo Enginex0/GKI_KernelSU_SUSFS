@@ -1359,67 +1359,6 @@ index 09e8ed7d4..dd3c6869c 100644
  	if (buf.prev_reclen) {
  		struct compat_linux_dirent __user * lastdirent;
  		lastdirent = (void __user *)buf.current_dir - buf.prev_reclen;
-diff --git a/fs/statfs.c b/fs/statfs.c
-index 2616424012..8f3241a372 100644
---- a/fs/statfs.c
-+++ b/fs/statfs.c
-@@ -11,6 +11,10 @@
- #include <linux/uaccess.h>
- #include <linux/compat.h>
-
-+#ifdef CONFIG_FS_DCACHE_PREFETCH
-+#include <linux/vfs_dcache.h>
-+#endif
-+
- static int flags_by_mnt(int mnt_flags)
- {
- 	int flags = 0;
-@@ -87,6 +91,14 @@ static int vfs_statfs_native(struct dentry *dentry, struct statfs *buf)
- {
- 	struct kstatfs st;
- 	int retval;
-+
-+#ifdef CONFIG_FS_DCACHE_PREFETCH
-+	/* Spoof statfs for injected files */
-+	if (dentry->d_inode && nomount_is_injected_file(dentry->d_inode)) {
-+		if (nomount_spoof_statfs(dentry->d_inode, &st) == 0)
-+			goto copy_result;
-+	}
-+#endif
-
- 	retval = vfs_statfs(dentry, &st);
- 	if (retval)
-@@ -94,6 +106,7 @@ static int vfs_statfs_native(struct dentry *dentry, struct statfs *buf)
-
- 	if (sizeof(*buf) == sizeof(st))
- 		memcpy(buf, &st, sizeof(st));
-+copy_result:
- 	else {
- 		buf->f_type = st.f_type;
- 		buf->f_bsize = st.f_bsize;
-@@ -120,6 +133,14 @@ static int vfs_statfs64(struct dentry *dentry, struct statfs64 *buf)
- {
- 	struct kstatfs st;
- 	int retval;
-+
-+#ifdef CONFIG_FS_DCACHE_PREFETCH
-+	/* Spoof statfs64 for injected files */
-+	if (dentry->d_inode && nomount_is_injected_file(dentry->d_inode)) {
-+		if (nomount_spoof_statfs(dentry->d_inode, &st) == 0)
-+			goto copy_result64;
-+	}
-+#endif
-
- 	retval = vfs_statfs(dentry, &st);
- 	if (retval)
-@@ -127,6 +148,7 @@ static int vfs_statfs64(struct dentry *dentry, struct statfs64 *buf)
-
- 	if (sizeof(*buf) == sizeof(st))
- 		memcpy(buf, &st, sizeof(st));
-+copy_result64:
- 	else {
- 		buf->f_type = st.f_type;
- 		buf->f_bsize = st.f_bsize;
 diff --git a/include/linux/vfs_dcache.h b/include/linux/vfs_dcache.h
 new file mode 100644
 index 000000000..9e0fb1b21
