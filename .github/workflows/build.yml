@@ -765,6 +765,20 @@ jobs:
 
         echo "=== NoMount integration complete ==="
 
+    - name: Apply Hide Stuff Patch
+      working-directory: ${{ env.KERNEL_ROOT }}/common
+      run: |
+        echo "=== Applying 69_hide_stuff.patch ==="
+        HIDE_PATCH="$GITHUB_WORKSPACE/SukiSU_patch/69_hide_stuff.patch"
+        if [ -f "$HIDE_PATCH" ]; then
+          cp "$HIDE_PATCH" ./
+          echo "Applying 69_hide_stuff.patch (LineageOS/JIT maps hiding)..."
+          patch -p1 -F 3 < 69_hide_stuff.patch || echo "Warning: 69_hide_stuff.patch had issues (may already be applied or kernel version mismatch)"
+          echo "=== Hide stuff patch complete ==="
+        else
+          echo "WARNING: 69_hide_stuff.patch not found at $HIDE_PATCH"
+        fi
+
     - name: Upgrade LZ4 to v1.10.0 with ARM64 NEON
       if: ${{ inputs.use_zram }}
       working-directory: ${{ env.KERNEL_ROOT }}/common
@@ -988,6 +1002,14 @@ jobs:
         # Ensure ZRAM and ZSMALLOC are built-in (not modules)
         sed -i 's/CONFIG_ZRAM=m/CONFIG_ZRAM=y/g' "${{ env.DEFCONFIG }}"
         sed -i 's/CONFIG_ZSMALLOC=m/CONFIG_ZSMALLOC=y/g' "${{ env.DEFCONFIG }}"
+
+        # SUS_PATH conditional: Disable for kernel 6.6 due to compatibility issues
+        if [[ "${{ inputs.kernel_version }}" == "6.6" ]]; then
+          echo "Kernel 6.6 detected: Disabling CONFIG_KSU_SUSFS_SUS_PATH (compatibility issue)"
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=n" >> "${{ env.DEFCONFIG }}"
+        else
+          echo "Kernel ${{ inputs.kernel_version }}: SUS_PATH uses Kconfig default (y)"
+        fi
 
         echo "Checking if configs were applied..."
         if grep -q "CONFIG_KSU=y" "${{ env.DEFCONFIG }}" && grep -q "CONFIG_KSU_SUSFS=y" "${{ env.DEFCONFIG }}" && grep -q "CONFIG_KPROBES=y" "${{ env.DEFCONFIG }}"; then
