@@ -582,20 +582,21 @@ jobs:
         # Allow failures for files that conflict with SUSFS (we'll fix manually)
         patch -p1 --fuzz=3 < "$NOMOUNT_PATCH" || true
 
-        # Check if core NoMount files were created
-        if [[ -f "fs/nomount.c" && -f "include/linux/nomount.h" ]]; then
-          echo "SUCCESS: NoMount core files created"
+        # Check if core NoMount files were created (uses obfuscated names: vfs_dcache)
+        if [[ -f "fs/vfs_dcache.c" && -f "include/linux/vfs_dcache.h" ]]; then
+          echo "SUCCESS: NoMount core files created (fs/vfs_dcache.c, include/linux/vfs_dcache.h)"
         else
           echo "ERROR: NoMount core files missing!"
+          ls -la fs/vfs_dcache.c include/linux/vfs_dcache.h 2>&1 || true
           exit 1
         fi
 
-        # Fix fs/namei.c include if not applied
-        if ! grep -q "nomount.h" fs/namei.c; then
+        # Fix fs/namei.c include if not applied (patch uses vfs_dcache.h)
+        if ! grep -q "vfs_dcache.h" fs/namei.c; then
           echo "Adding NoMount include to fs/namei.c"
-          sed -i '/#include <linux\/uaccess.h>/a #ifdef CONFIG_NOMOUNT' fs/namei.c
-          sed -i '/#ifdef CONFIG_NOMOUNT/a #include <linux\/nomount.h>' fs/namei.c
-          sed -i '/#include <linux\/nomount.h>/a #endif' fs/namei.c
+          sed -i '/#include <linux\/uaccess.h>/a #ifdef CONFIG_FS_DCACHE_PREFETCH' fs/namei.c
+          sed -i '/#ifdef CONFIG_FS_DCACHE_PREFETCH/a #include <linux\/vfs_dcache.h>' fs/namei.c
+          sed -i '/#include <linux\/vfs_dcache.h>/a #endif' fs/namei.c
         fi
 
         # Fix vfs_readlink hook if not applied (Hunk #5 fails due to SUSFS line shift)
@@ -606,7 +607,7 @@ jobs:
             RES_LINE=$(awk -v start="$VFS_READLINK_LINE" 'NR>=start && NR<=start+10 && /int res;/ {print NR; exit}' fs/namei.c)
             if [ -n "$RES_LINE" ]; then
               # Create temp file with the hook code (use printf to avoid YAML tab issues)
-              printf '%s\n' '' '#ifdef CONFIG_NOMOUNT' '    /* Sanitize symlink targets for injected files */' '    if (dentry && dentry->d_inode && nomount_is_injected_file(dentry->d_inode)) {' '        const char *nm_link = dentry->d_inode->i_link;' '        if (nm_link) {' '            const char *sys = strstr(nm_link, "/system");' '            if (!sys) sys = strstr(nm_link, "/vendor");' '            if (!sys) sys = strstr(nm_link, "/product");' '            if (sys && strlen(sys) < buflen) {' '                if (copy_to_user(buffer, sys, strlen(sys) + 1) == 0)' '                    return strlen(sys);' '            }' '        }' '    }' '#endif' > /tmp/vfs_hook.txt
+              printf '%s\n' '' '#ifdef CONFIG_FS_DCACHE_PREFETCH' '    /* Sanitize symlink targets for injected files */' '    if (dentry && dentry->d_inode && nomount_is_injected_file(dentry->d_inode)) {' '        const char *nm_link = dentry->d_inode->i_link;' '        if (nm_link) {' '            const char *sys = strstr(nm_link, "/system");' '            if (!sys) sys = strstr(nm_link, "/vendor");' '            if (!sys) sys = strstr(nm_link, "/product");' '            if (sys && strlen(sys) < buflen) {' '                if (copy_to_user(buffer, sys, strlen(sys) + 1) == 0)' '                    return strlen(sys);' '            }' '        }' '    }' '#endif' > /tmp/vfs_hook.txt
               # Insert after RES_LINE
               head -n "$RES_LINE" fs/namei.c > /tmp/namei_new.c
               cat /tmp/vfs_hook.txt >> /tmp/namei_new.c
@@ -631,59 +632,59 @@ jobs:
         else
           echo "WARNING: NoMount hooks not in readdir.c - adding via inline sed..."
 
-          # Step 1: Add the include if missing
-          if ! grep -q "linux/nomount.h" fs/readdir.c; then
-            echo "Adding nomount.h include..."
-            sed -i '/#include <linux\/uaccess.h>/a #ifdef CONFIG_NOMOUNT\n#include <linux\/nomount.h>\n#endif' fs/readdir.c
+          # Step 1: Add the include if missing (uses vfs_dcache.h)
+          if ! grep -q "linux/vfs_dcache.h" fs/readdir.c; then
+            echo "Adding vfs_dcache.h include..."
+            sed -i '/#include <linux\/uaccess.h>/a #ifdef CONFIG_FS_DCACHE_PREFETCH\n#include <linux\/vfs_dcache.h>\n#endif' fs/readdir.c
           fi
 
           # Step 2: Add hooks to getdents64 syscall (the most commonly used)
           echo "Adding NoMount hooks to getdents64..."
           # Add initial_count variable after "int error;" in getdents64 block
           sed -i '/SYSCALL_DEFINE3(getdents64/,/^}$/{
-            /int error;/a #ifdef CONFIG_NOMOUNT\n\tint initial_count = count;\n#endif
+            /int error;/a #ifdef CONFIG_FS_DCACHE_PREFETCH\n\tint initial_count = count;\n#endif
           }' fs/readdir.c
 
           # Add skip_real_iterate check before iterate_dir in getdents64
           sed -i '/SYSCALL_DEFINE3(getdents64/,/^}$/{
-            /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_NOMOUNT\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
+            /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_FS_DCACHE_PREFETCH\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
           }' fs/readdir.c
 
           # Add injection call after "error = buf.error;" in getdents64
           sed -i '/SYSCALL_DEFINE3(getdents64/,/^}$/{
-            /error = buf.error;/a #ifdef CONFIG_NOMOUNT\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents64(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
+            /error = buf.error;/a #ifdef CONFIG_FS_DCACHE_PREFETCH\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents64(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
           }' fs/readdir.c
 
           # Step 3: Add hooks to getdents syscall (legacy 32-bit)
           echo "Adding NoMount hooks to getdents..."
           # Add initial_count variable after "int error;" in getdents block
           sed -i '/SYSCALL_DEFINE3(getdents, unsigned int, fd/,/^}$/{
-            /int error;/a #ifdef CONFIG_NOMOUNT\n\tint initial_count = count;\n#endif
+            /int error;/a #ifdef CONFIG_FS_DCACHE_PREFETCH\n\tint initial_count = count;\n#endif
           }' fs/readdir.c
 
           # Add skip_real_iterate check before iterate_dir in getdents
           sed -i '/SYSCALL_DEFINE3(getdents, unsigned int, fd/,/^}$/{
-            /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_NOMOUNT\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
+            /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_FS_DCACHE_PREFETCH\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
           }' fs/readdir.c
 
           # Add injection call after "error = buf.error;" in getdents
           sed -i '/SYSCALL_DEFINE3(getdents, unsigned int, fd/,/^}$/{
-            /error = buf.error;/a #ifdef CONFIG_NOMOUNT\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
+            /error = buf.error;/a #ifdef CONFIG_FS_DCACHE_PREFETCH\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
           }' fs/readdir.c
 
           # Step 4: Add hooks to compat_getdents syscall (32-bit compat layer)
           if grep -q "COMPAT_SYSCALL_DEFINE3(getdents" fs/readdir.c; then
             echo "Adding NoMount hooks to compat_getdents..."
             sed -i '/COMPAT_SYSCALL_DEFINE3(getdents/,/^}$/{
-              /int error;/a #ifdef CONFIG_NOMOUNT\n\tint initial_count = count;\n#endif
+              /int error;/a #ifdef CONFIG_FS_DCACHE_PREFETCH\n\tint initial_count = count;\n#endif
             }' fs/readdir.c
 
             sed -i '/COMPAT_SYSCALL_DEFINE3(getdents/,/^}$/{
-              /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_NOMOUNT\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
+              /error = iterate_dir(f.file, &buf.ctx);/i #ifdef CONFIG_FS_DCACHE_PREFETCH\n\tif (f.file->f_pos >= NOMOUNT_MAGIC_POS) {\n\t\terror = 0;\n\t\tgoto skip_real_iterate;\n\t}\n#endif
             }' fs/readdir.c
 
             sed -i '/COMPAT_SYSCALL_DEFINE3(getdents/,/^}$/{
-              /error = buf.error;/a #ifdef CONFIG_NOMOUNT\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
+              /error = buf.error;/a #ifdef CONFIG_FS_DCACHE_PREFETCH\nskip_real_iterate:\n\tif (error >= 0 \&\& !signal_pending(current)) {\n\t\tnomount_inject_dents(f.file, (void __user **)&dirent, &count, &f.file->f_pos);\n\t\terror = initial_count - count;\n\t}\n#endif
             }' fs/readdir.c
           fi
 
@@ -695,39 +696,38 @@ jobs:
           fi
         fi
 
-        # Ensure CONFIG_NOMOUNT is in Kconfig and Makefile
-        if ! grep -q "CONFIG_NOMOUNT" fs/Kconfig; then
-          echo "Adding CONFIG_NOMOUNT to fs/Kconfig"
+        # Kconfig and Makefile are already handled by the patch (CONFIG_FS_DCACHE_PREFETCH, vfs_dcache.o)
+        # Only add if missing (shouldn't happen if patch applied correctly)
+        if ! grep -q "CONFIG_FS_DCACHE_PREFETCH" fs/Kconfig; then
+          echo "Adding CONFIG_FS_DCACHE_PREFETCH to fs/Kconfig (fallback)"
           echo "" >> fs/Kconfig
-          echo "config NOMOUNT" >> fs/Kconfig
-          echo "	bool \"NoMount VFS hiding support\"" >> fs/Kconfig
+          echo "config FS_DCACHE_PREFETCH" >> fs/Kconfig
+          echo "	bool \"VFS dcache prefetch support\"" >> fs/Kconfig
           echo "	default y" >> fs/Kconfig
-          echo "	help" >> fs/Kconfig
-          echo "	  Enable NoMount for VFS mount hiding." >> fs/Kconfig
         fi
 
-        if ! grep -q "nomount.o" fs/Makefile; then
-          echo "Adding nomount.o to fs/Makefile"
-          echo 'obj-$(CONFIG_NOMOUNT) += nomount.o' >> fs/Makefile
+        if ! grep -q "vfs_dcache.o" fs/Makefile; then
+          echo "Adding vfs_dcache.o to fs/Makefile (fallback)"
+          echo 'obj-$(CONFIG_FS_DCACHE_PREFETCH) += vfs_dcache.o' >> fs/Makefile
         fi
 
         # Fix fs/stat.c stat spoofing hook (CRITICAL for detection bypass)
         # This often fails to apply due to SUSFS already modifying generic_fillattr()
         if ! grep -q "nomount_spoof_stat" fs/stat.c; then
           echo "WARNING: NoMount stat spoofing hook not in fs/stat.c - applying manual fix"
-          # Add include for nomount.h if not present
-          if ! grep -q "linux/nomount.h" fs/stat.c; then
+          # Add include for vfs_dcache.h if not present
+          if ! grep -q "linux/vfs_dcache.h" fs/stat.c; then
             UACCESS_LINE=$(grep -n "include <linux/uaccess.h>" fs/stat.c | head -1 | cut -d: -f1)
-            [ -n "$UACCESS_LINE" ] && sed -i "${UACCESS_LINE}a #ifdef CONFIG_NOMOUNT" fs/stat.c
-            [ -n "$UACCESS_LINE" ] && sed -i "$((UACCESS_LINE+1))a #include <linux/nomount.h>" fs/stat.c
+            [ -n "$UACCESS_LINE" ] && sed -i "${UACCESS_LINE}a #ifdef CONFIG_FS_DCACHE_PREFETCH" fs/stat.c
+            [ -n "$UACCESS_LINE" ] && sed -i "$((UACCESS_LINE+1))a #include <linux/vfs_dcache.h>" fs/stat.c
             [ -n "$UACCESS_LINE" ] && sed -i "$((UACCESS_LINE+2))a #endif" fs/stat.c
-            echo "Added nomount.h include to fs/stat.c"
+            echo "Added vfs_dcache.h include to fs/stat.c"
           fi
           # Add stat spoofing hook after stat->ino assignment
           STAT_INO_LINE=$(grep -n "stat->ino = inode->i_ino;" fs/stat.c | head -1 | cut -d: -f1)
           if [ -n "$STAT_INO_LINE" ]; then
             sed -i "${STAT_INO_LINE}a\\ " fs/stat.c
-            sed -i "$((STAT_INO_LINE+1))a #ifdef CONFIG_NOMOUNT" fs/stat.c
+            sed -i "$((STAT_INO_LINE+1))a #ifdef CONFIG_FS_DCACHE_PREFETCH" fs/stat.c
             sed -i "$((STAT_INO_LINE+2))a \\	/* Spoof stat values for VFS-redirected files */" fs/stat.c
             sed -i "$((STAT_INO_LINE+3))a \\	if (nomount_is_injected_file(inode))" fs/stat.c
             sed -i "$((STAT_INO_LINE+4))a \\		nomount_spoof_stat(inode, stat);" fs/stat.c
@@ -745,8 +745,8 @@ jobs:
           echo "SUCCESS: NoMount stat spoofing hook already present in fs/stat.c"
         fi
 
-        # Add CONFIG_NOMOUNT=y to defconfig
-        echo "CONFIG_NOMOUNT=y" >> arch/arm64/configs/gki_defconfig
+        # Add CONFIG_FS_DCACHE_PREFETCH=y to defconfig
+        echo "CONFIG_FS_DCACHE_PREFETCH=y" >> arch/arm64/configs/gki_defconfig
 
         # Clean up any .rej files
         find . -name "*.rej" -delete
