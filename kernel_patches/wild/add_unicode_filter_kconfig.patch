@@ -1,7 +1,7 @@
 diff --git a/kernel/Kconfig b/kernel/Kconfig
 --- a/kernel/Kconfig
 +++ b/kernel/Kconfig
-@@ -95,6 +95,18 @@ config KSU_SUSFS_SUS_MAP
+@@ -90,6 +90,17 @@ config KSU_SUSFS_SUS_MAP
          - It may not be able to evade detections by apps that implement a good injection detection.
          - Effective only on zygote spawned umounted user app process.
 
@@ -14,7 +14,6 @@ diff --git a/kernel/Kconfig b/kernel/Kconfig
 +        - Detects invisible/zero-width Unicode characters (U+200B, U+FEFF, etc.) used to
 +          bypass Android scoped storage restrictions (CVE-2024-43093).
 +        - Whitelist root (UID 0) and system (UID 1000) to prevent boot issues.
-+        - Effective only on zygote spawned user app process.
 +
  endmenu
 
