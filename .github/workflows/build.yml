@@ -248,7 +248,17 @@ jobs:
             cd "$KERNEL_ROOT/Wild_KSU"
             if [ -f "$KERNEL_PATCHES/wild/add_unicode_filter_kconfig.patch" ]; then
               echo "Adding KSU_SUSFS_UNICODE_FILTER to Wild_KSU Kconfig..."
-              patch -p1 --fuzz=3 < "$KERNEL_PATCHES/wild/add_unicode_filter_kconfig.patch" || echo "Warning: Kconfig patch had issues"
+              if ! patch -p1 --fuzz=3 < "$KERNEL_PATCHES/wild/add_unicode_filter_kconfig.patch"; then
+                echo "ERROR: Unicode filter Kconfig patch failed!"
+                echo "=== Current Kconfig tail ==="
+                tail -30 kernel/Kconfig
+                exit 1
+              fi
+              if ! grep -q "KSU_SUSFS_UNICODE_FILTER" kernel/Kconfig; then
+                echo "ERROR: KSU_SUSFS_UNICODE_FILTER not found in Kconfig after patching!"
+                exit 1
+              fi
+              echo "SUCCESS: Unicode filter Kconfig option added"
             fi
 
             cd "$KERNEL_ROOT/common"
