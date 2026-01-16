@@ -625,6 +625,40 @@ jobs:
           echo 'obj-$(CONFIG_NOMOUNT) += nomount.o' >> fs/Makefile
         fi
 
+        # Fix fs/stat.c stat spoofing hook (CRITICAL for detection bypass)
+        # This often fails to apply due to SUSFS already modifying generic_fillattr()
+        if ! grep -q "nomount_spoof_stat" fs/stat.c; then
+          echo "WARNING: NoMount stat spoofing hook not in fs/stat.c - applying manual fix"
+          # Add include for nomount.h if not present
+          if ! grep -q "linux/nomount.h" fs/stat.c; then
+            UACCESS_LINE=$(grep -n "include <linux/uaccess.h>" fs/stat.c | head -1 | cut -d: -f1)
+            [ -n "$UACCESS_LINE" ] && sed -i "${UACCESS_LINE}a #ifdef CONFIG_NOMOUNT" fs/stat.c
+            [ -n "$UACCESS_LINE" ] && sed -i "$((UACCESS_LINE+1))a #include <linux/nomount.h>" fs/stat.c
+            [ -n "$UACCESS_LINE" ] && sed -i "$((UACCESS_LINE+2))a #endif" fs/stat.c
+            echo "Added nomount.h include to fs/stat.c"
+          fi
+          # Add stat spoofing hook after stat->ino assignment
+          STAT_INO_LINE=$(grep -n "stat->ino = inode->i_ino;" fs/stat.c | head -1 | cut -d: -f1)
+          if [ -n "$STAT_INO_LINE" ]; then
+            sed -i "${STAT_INO_LINE}a\\ " fs/stat.c
+            sed -i "$((STAT_INO_LINE+1))a #ifdef CONFIG_NOMOUNT" fs/stat.c
+            sed -i "$((STAT_INO_LINE+2))a \\	/* Spoof stat values for VFS-redirected files */" fs/stat.c
+            sed -i "$((STAT_INO_LINE+3))a \\	if (nomount_is_injected_file(inode))" fs/stat.c
+            sed -i "$((STAT_INO_LINE+4))a \\		nomount_spoof_stat(inode, stat);" fs/stat.c
+            sed -i "$((STAT_INO_LINE+5))a #endif" fs/stat.c
+            echo "Added stat spoofing hook to fs/stat.c"
+          fi
+          # Verify the fix was applied
+          if grep -q "nomount_spoof_stat" fs/stat.c; then
+            echo "SUCCESS: fs/stat.c stat spoofing hook applied"
+          else
+            echo "ERROR: Failed to apply fs/stat.c stat spoofing hook"
+            exit 1
+          fi
+        else
+          echo "SUCCESS: NoMount stat spoofing hook already present in fs/stat.c"
+        fi
+
         # Add CONFIG_NOMOUNT=y to defconfig
         echo "CONFIG_NOMOUNT=y" >> arch/arm64/configs/gki_defconfig
 
