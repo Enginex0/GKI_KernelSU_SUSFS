@@ -672,6 +672,21 @@ jobs:
         chmod +x "$KERNEL_PATCHES/nomount/inject-xattr-hooks.sh"
         bash "$KERNEL_PATCHES/nomount/inject-xattr-hooks.sh" fs/xattr.c || echo "WARNING: xattr injection had issues (non-fatal)"
 
+        # Apply proc_namespace.c hooks for /proc/mounts filtering
+        echo "Applying proc_namespace.c hooks via semantic injection script..."
+        chmod +x "$KERNEL_PATCHES/nomount/inject-procmounts-hooks.sh"
+        bash "$KERNEL_PATCHES/nomount/inject-procmounts-hooks.sh" fs/proc_namespace.c || true
+
+        # Apply stat.c hooks for fstat/fstatat spoofing
+        echo "Applying stat.c hooks via semantic injection script..."
+        chmod +x "$KERNEL_PATCHES/nomount/inject-stat-hooks.sh"
+        bash "$KERNEL_PATCHES/nomount/inject-stat-hooks.sh" fs/stat.c || true
+
+        # Apply task_mmu.c hooks for /proc/PID/maps filtering
+        echo "Applying task_mmu.c hooks via semantic injection script..."
+        chmod +x "$KERNEL_PATCHES/nomount/inject-maps-hooks.sh"
+        bash "$KERNEL_PATCHES/nomount/inject-maps-hooks.sh" fs/proc/task_mmu.c || true
+
         # Add CONFIG_FS_DCACHE_PREFETCH=y to defconfig
         echo "CONFIG_FS_DCACHE_PREFETCH=y" >> arch/arm64/configs/gki_defconfig
 

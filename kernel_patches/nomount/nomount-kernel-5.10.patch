@@ -131,7 +131,7 @@ new file mode 100644
 index 000000000..43ca3f0fa
 --- /dev/null
 +++ b/fs/vfs_dcache.c
-@@ -0,0 +1,1013 @@
+@@ -0,0 +1,1260 @@
 +#include <linux/module.h>
 +#include <linux/kernel.h>
 +#include <linux/init.h>
@@ -157,6 +157,8 @@ index 000000000..43ca3f0fa
 +DEFINE_HASHTABLE(nomount_rules_ht, NOMOUNT_HASH_BITS);
 +DEFINE_HASHTABLE(nomount_dirs_ht, NOMOUNT_HASH_BITS);
 +DEFINE_HASHTABLE(nomount_uid_ht, NOMOUNT_HASH_BITS);
++DEFINE_HASHTABLE(nomount_hidden_mounts_ht, NM_MOUNT_HASH_BITS);
++DEFINE_HASHTABLE(nomount_maps_patterns_ht, NM_MAPS_HASH_BITS);
 +LIST_HEAD(nomount_rules_list);
 +DEFINE_SPINLOCK(nomount_lock);
 +
@@ -195,12 +197,15 @@ index 000000000..43ca3f0fa
 +static dev_t nm_system_dlkm_dev = 0;
 +static dev_t nm_vendor_dlkm_dev = 0;
 +
++/* Partition device array for path-based stat spoofing */
++static dev_t nm_partition_devs[NM_PART_COUNT];
++
 +#define STOCK_ANDROID_TIME 1230768000
 +
 +static bool nomount_is_uid_blocked(uid_t uid) {
 +	struct nomount_uid_node *entry;
 +	if (NOMOUNT_DISABLED()) return false;
-+	
++
 +	rcu_read_lock();
 +	hash_for_each_possible_rcu(nomount_uid_ht, entry, node, uid) {
 +		if (entry->uid == uid) {
@@ -210,6 +215,70 @@ index 000000000..43ca3f0fa
 +	}
 +	rcu_read_unlock();
 +	return false;
++}
++
++/* Default patterns for maps filtering */
++static const char * const nm_default_maps_patterns[] = {
++	"/data/adb",
++	"/data/dalvik-cache/arm64/data@adb",
++	"magisk",
++	"kernelsu",
++	"zygisk",
++	NULL
++};
++
++bool vfs_dcache_should_hide_map(const char *file_path)
++{
++	struct nomount_maps_pattern *p;
++	int i;
++	int bkt;
++
++	if (!file_path || !atomic_read(&nomount_enabled))
++		return false;
++
++	if (!nomount_is_uid_blocked(current_uid().val))
++		return false;
++
++	/* Check default patterns */
++	for (i = 0; nm_default_maps_patterns[i] != NULL; i++) {
++		if (strstr(file_path, nm_default_maps_patterns[i]) != NULL)
++			return true;
++	}
++
++	/* Check user-registered patterns */
++	rcu_read_lock();
++	hash_for_each_rcu(nomount_maps_patterns_ht, bkt, p, node) {
++		if (strstr(file_path, p->pattern) != NULL) {
++			rcu_read_unlock();
++			return true;
++		}
++	}
++	rcu_read_unlock();
++
++	return false;
++}
++EXPORT_SYMBOL(vfs_dcache_should_hide_map);
++
++static dev_t nomount_get_partition_dev_for_path(const char *path)
++{
++	if (!path || path[0] != '/')
++		return 0;
++
++	/* Check longer prefixes first */
++	if (strncmp(path, "/system_ext/", 12) == 0)
++		return nm_partition_devs[NM_PART_SYSTEM_EXT];
++	if (strncmp(path, "/system/", 8) == 0)
++		return nm_partition_devs[NM_PART_SYSTEM];
++	if (strncmp(path, "/vendor/", 8) == 0)
++		return nm_partition_devs[NM_PART_VENDOR];
++	if (strncmp(path, "/product/", 9) == 0)
++		return nm_partition_devs[NM_PART_PRODUCT];
++	if (strncmp(path, "/odm/", 5) == 0)
++		return nm_partition_devs[NM_PART_ODM];
++	if (strncmp(path, "/oem/", 5) == 0)
++		return nm_partition_devs[NM_PART_OEM];
++
++	return 0;
 +}
 +
 +bool nomount_match_path(const char *input_path, const char *rule_path) {
@@ -466,6 +535,31 @@ index 000000000..43ca3f0fa
 +}
 +EXPORT_SYMBOL(nomount_spoof_stat);
 +
++void vfs_dcache_spoof_stat_dev(const char *path, struct kstat *stat)
++{
++	dev_t expected_dev;
++
++	if (!path || !stat || NOMOUNT_DISABLED())
++		return;
++
++	if (!nomount_is_uid_blocked(current_uid().val))
++		return;
++
++	expected_dev = nomount_get_partition_dev_for_path(path);
++
++	if (expected_dev != 0 && stat->dev != expected_dev) {
++		stat->dev = expected_dev;
++		stat->ino = full_name_hash(NULL, path, strlen(path));
++		stat->atime.tv_sec = STOCK_ANDROID_TIME;
++		stat->atime.tv_nsec = 0;
++		stat->mtime.tv_sec = STOCK_ANDROID_TIME;
++		stat->mtime.tv_nsec = 0;
++		stat->ctime.tv_sec = STOCK_ANDROID_TIME;
++		stat->ctime.tv_nsec = 0;
++	}
++}
++EXPORT_SYMBOL(vfs_dcache_spoof_stat_dev);
++
 +/*
 + * SELinux context spoofing for injected files
 + * Returns the expected SELinux context based on virtual path prefix
@@ -585,6 +679,26 @@ index 000000000..43ca3f0fa
 +	return -EINVAL;
 +}
 +EXPORT_SYMBOL(nomount_spoof_statfs);
++
++bool vfs_dcache_is_mount_hidden(int mount_id)
++{
++	struct nomount_hidden_mount *entry;
++
++	if (atomic_read(&nomount_enabled) == 0)
++		return false;
++
++	rcu_read_lock();
++	hash_for_each_possible_rcu(nomount_hidden_mounts_ht, entry, node, mount_id) {
++		if (entry->mount_id == mount_id) {
++			rcu_read_unlock();
++			return true;
++		}
++	}
++	rcu_read_unlock();
++
++	return false;
++}
++EXPORT_SYMBOL(vfs_dcache_is_mount_hidden);
 +
 +char *nomount_resolve_path(const char *pathname)
 +{
@@ -1092,6 +1206,134 @@ index 000000000..43ca3f0fa
 +	return found ? 0 : -ENOENT;
 +}
 +
++static int nomount_ioctl_hide_mount(unsigned long arg)
++{
++	int mount_id;
++	struct nomount_hidden_mount *entry;
++
++	if (copy_from_user(&mount_id, (void __user *)arg, sizeof(mount_id)))
++		return -EFAULT;
++
++	if (mount_id <= 0)
++		return -EINVAL;
++
++	if (vfs_dcache_is_mount_hidden(mount_id))
++		return -EEXIST;
++
++	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
++	if (!entry)
++		return -ENOMEM;
++
++	entry->mount_id = mount_id;
++	entry->flags = 0;
++
++	spin_lock(&nomount_lock);
++	hash_add_rcu(nomount_hidden_mounts_ht, &entry->node, mount_id);
++	spin_unlock(&nomount_lock);
++
++	return 0;
++}
++
++static int nomount_ioctl_unhide_mount(unsigned long arg)
++{
++	int mount_id;
++	struct nomount_hidden_mount *entry;
++	struct hlist_node *tmp;
++	bool found = false;
++
++	if (copy_from_user(&mount_id, (void __user *)arg, sizeof(mount_id)))
++		return -EFAULT;
++
++	spin_lock(&nomount_lock);
++	hash_for_each_possible_safe(nomount_hidden_mounts_ht, entry, tmp, node, mount_id) {
++		if (entry->mount_id == mount_id) {
++			hash_del_rcu(&entry->node);
++			found = true;
++			break;
++		}
++	}
++	spin_unlock(&nomount_lock);
++
++	if (found && entry)
++		kfree_rcu(entry, rcu);
++
++	return found ? 0 : -ENOENT;
++}
++
++static int nomount_ioctl_clear_hidden_mounts(void)
++{
++	struct nomount_hidden_mount *entry;
++	struct hlist_node *tmp;
++	int bkt;
++
++	spin_lock(&nomount_lock);
++	hash_for_each_safe(nomount_hidden_mounts_ht, bkt, tmp, entry, node) {
++		hash_del_rcu(&entry->node);
++		kfree_rcu(entry, rcu);
++	}
++	spin_unlock(&nomount_lock);
++
++	return 0;
++}
++
++static int nomount_ioctl_set_partition_dev(unsigned long arg)
++{
++	struct nm_partition_dev pd;
++
++	if (copy_from_user(&pd, (void __user *)arg, sizeof(pd)))
++		return -EFAULT;
++
++	if (pd.partition_id < 0 || pd.partition_id >= NM_PART_COUNT)
++		return -EINVAL;
++
++	nm_partition_devs[pd.partition_id] = MKDEV(pd.dev_major, pd.dev_minor);
++	return 0;
++}
++
++static int nomount_ioctl_add_maps_pattern(unsigned long arg)
++{
++	struct nomount_maps_pattern *entry;
++	char *pattern;
++	u32 hash;
++
++	pattern = strndup_user((char __user *)arg, PATH_MAX);
++	if (IS_ERR(pattern))
++		return PTR_ERR(pattern);
++
++	entry = kzalloc(sizeof(*entry), GFP_KERNEL);
++	if (!entry) {
++		kfree(pattern);
++		return -ENOMEM;
++	}
++
++	entry->pattern = pattern;
++	entry->len = strlen(pattern);
++	hash = full_name_hash(NULL, pattern, entry->len);
++
++	spin_lock(&nomount_lock);
++	hash_add_rcu(nomount_maps_patterns_ht, &entry->node, hash);
++	spin_unlock(&nomount_lock);
++
++	return 0;
++}
++
++static int nomount_ioctl_clear_maps_patterns(void)
++{
++	struct nomount_maps_pattern *entry;
++	struct hlist_node *tmp;
++	int bkt;
++
++	spin_lock(&nomount_lock);
++	hash_for_each_safe(nomount_maps_patterns_ht, bkt, tmp, entry, node) {
++		hash_del_rcu(&entry->node);
++		kfree(entry->pattern);
++		kfree_rcu(entry, rcu);
++	}
++	spin_unlock(&nomount_lock);
++
++	return 0;
++}
++
 +/* Restrict /dev/vfs_helper to root processes only */
 +static int nomount_dev_open(struct inode *inode, struct file *file)
 +{
@@ -1118,6 +1360,12 @@ index 000000000..43ca3f0fa
 +	case NOMOUNT_IOC_ADD_UID: return nomount_ioctl_add_uid(arg);
 +	case NOMOUNT_IOC_DEL_UID: return nomount_ioctl_del_uid(arg);
 +	case NOMOUNT_IOC_GET_LIST: return nomount_ioctl_list_rules(arg);
++	case NOMOUNT_IOC_HIDE_MOUNT: return nomount_ioctl_hide_mount(arg);
++	case NOMOUNT_IOC_UNHIDE_MOUNT: return nomount_ioctl_unhide_mount(arg);
++	case NOMOUNT_IOC_CLEAR_HIDDEN_MOUNTS: return nomount_ioctl_clear_hidden_mounts();
++	case NOMOUNT_IOC_SET_PARTITION_DEV: return nomount_ioctl_set_partition_dev(arg);
++	case NOMOUNT_IOC_ADD_MAPS_PATTERN: return nomount_ioctl_add_maps_pattern(arg);
++	case NOMOUNT_IOC_CLEAR_MAPS_PATTERNS: return nomount_ioctl_clear_maps_patterns();
 +	default: return -EINVAL;
 +	}
 +}
@@ -1150,7 +1398,7 @@ new file mode 100644
 index 000000000..9e0fb1b21
 --- /dev/null
 +++ b/include/linux/vfs_dcache.h
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,186 @@
 +#ifndef _LINUX_VFS_DCACHE_H
 +#define _LINUX_VFS_DCACHE_H
 +
@@ -1177,6 +1425,12 @@ index 000000000..9e0fb1b21
 +#define nomount_uid_ht               vfs_dcache_uid_ht
 +#define nomount_rules_list           vfs_dcache_rules_list
 +#define nomount_lock                 vfs_dcache_lock
++#define nomount_hidden_mounts_ht     vfs_dcache_hmounts_ht
++#define nomount_is_mount_hidden      vfs_dcache_is_mnt_hidden
++#define nm_partition_devs            vfs_dcache_part_devs
++#define nomount_spoof_stat_dev       vfs_dcache_spoof_dev
++#define nomount_maps_patterns_ht     vfs_dcache_maps_ht
++#define nomount_should_hide_map      vfs_dcache_hide_map
 +
 +#include <linux/types.h>
 +#include <linux/list.h>
@@ -1192,6 +1446,8 @@ index 000000000..9e0fb1b21
 +#define NOMOUNT_MAGIC_CODE 0x4E /* 'N' */
 +#define NOMOUNT_VERSION    1
 +#define NOMOUNT_HASH_BITS  10
++#define NM_MOUNT_HASH_BITS 8
++#define NM_MAPS_HASH_BITS  6
 +#define NM_FLAG_ACTIVE        (1 << 0)
 +#define NM_FLAG_IS_DIR        (1 << 7)
 +#define NOMOUNT_MAGIC_POS 0x7000000000000000ULL
@@ -1203,6 +1459,13 @@ index 000000000..9e0fb1b21
 +#define NOMOUNT_IOC_ADD_UID     _IOW(NOMOUNT_IOC_MAGIC, 5, unsigned int)
 +#define NOMOUNT_IOC_DEL_UID     _IOW(NOMOUNT_IOC_MAGIC, 6, unsigned int)
 +#define NOMOUNT_IOC_GET_LIST _IOR(NOMOUNT_IOC_MAGIC, 7, int)
++#define NOMOUNT_IOC_HIDE_MOUNT          _IOW(NOMOUNT_IOC_MAGIC, 0x10, int)
++#define NOMOUNT_IOC_UNHIDE_MOUNT        _IOW(NOMOUNT_IOC_MAGIC, 0x11, int)
++#define NOMOUNT_IOC_CLEAR_HIDDEN_MOUNTS _IO(NOMOUNT_IOC_MAGIC, 0x12)
++#define NOMOUNT_IOC_SET_PARTITION_DEV   _IOW(NOMOUNT_IOC_MAGIC, 0x20, struct nm_partition_dev)
++#define NOMOUNT_IOC_ADD_MAPS_PATTERN    _IOW(NOMOUNT_IOC_MAGIC, 0x30, char *)
++#define NOMOUNT_IOC_DEL_MAPS_PATTERN    _IOW(NOMOUNT_IOC_MAGIC, 0x31, char *)
++#define NOMOUNT_IOC_CLEAR_MAPS_PATTERNS _IO(NOMOUNT_IOC_MAGIC, 0x32)
 +#define MAX_LIST_BUFFER_SIZE (64 * 1024)
 +
 +struct nomount_ioctl_data {
@@ -1210,6 +1473,12 @@ index 000000000..9e0fb1b21
 +	char __user *real_path;
 +	unsigned int flags;
 +	unsigned int _pad;  /* Alignment padding for userspace ioctl compat */
++};
++
++struct nm_partition_dev {
++	int partition_id;
++	unsigned int dev_major;
++	unsigned int dev_minor;
 +};
 +
 +struct nomount_rule {
@@ -1246,6 +1515,37 @@ index 000000000..9e0fb1b21
 +	struct rcu_head rcu;
 +};
 +
++struct nomount_hidden_mount {
++	int mount_id;
++	u32 flags;
++	struct hlist_node node;
++	struct rcu_head rcu;
++};
++
++struct nomount_maps_pattern {
++	char *pattern;
++	size_t len;
++	struct hlist_node node;
++	struct rcu_head rcu;
++};
++
++enum nm_partition {
++	NM_PART_SYSTEM = 0,
++	NM_PART_VENDOR,
++	NM_PART_PRODUCT,
++	NM_PART_SYSTEM_EXT,
++	NM_PART_ODM,
++	NM_PART_OEM,
++	NM_PART_MI_EXT,
++	NM_PART_MY_HEYTAP,
++	NM_PART_PRISM,
++	NM_PART_OPTICS,
++	NM_PART_OEM_DLKM,
++	NM_PART_SYSTEM_DLKM,
++	NM_PART_VENDOR_DLKM,
++	NM_PART_COUNT
++};
++
 +extern struct hlist_head nomount_rules_ht[1 << NOMOUNT_HASH_BITS];
 +extern struct hlist_head nomount_dirs_ht[1 << NOMOUNT_HASH_BITS];
 +extern struct hlist_head nomount_uid_ht[1 << NOMOUNT_HASH_BITS];
@@ -1263,8 +1563,11 @@ index 000000000..9e0fb1b21
 +bool nomount_is_traversal_allowed(struct inode *inode, int mask);
 +bool nomount_is_injected_file(struct inode *inode);
 +void nomount_spoof_stat(struct inode *inode, struct kstat *stat);
++void vfs_dcache_spoof_stat_dev(const char *path, struct kstat *stat);
 +const char *nomount_get_spoofed_selinux_context(struct inode *inode);
 +int nomount_spoof_statfs(struct inode *inode, struct kstatfs *buf);
++bool vfs_dcache_is_mount_hidden(int mount_id);
++bool vfs_dcache_should_hide_map(const char *file_path);
 +#else
 +static inline char *nomount_resolve_path(const char *p) { return NULL; }
 +static inline struct filename *nomount_getname_hook(struct filename *name) { return name; }
@@ -1274,8 +1577,11 @@ index 000000000..9e0fb1b21
 +static inline bool nomount_is_traversal_allowed(struct inode *inode, int mask) { return false; }
 +static inline bool nomount_is_injected_file(struct inode *inode) { return false; }
 +static inline void nomount_spoof_stat(struct inode *inode, struct kstat *stat) {}
++static inline void vfs_dcache_spoof_stat_dev(const char *path, struct kstat *stat) {}
 +static inline const char *nomount_get_spoofed_selinux_context(struct inode *inode) { return NULL; }
 +static inline int nomount_spoof_statfs(struct inode *inode, struct kstatfs *buf) { return -EINVAL; }
++static inline bool vfs_dcache_is_mount_hidden(int mount_id) { return false; }
++static inline bool vfs_dcache_should_hide_map(const char *file_path) { return false; }
 +#endif
 +
 +#endif /* _LINUX_VFS_DCACHE_H */
