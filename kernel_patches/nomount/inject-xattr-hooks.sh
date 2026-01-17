@@ -52,57 +52,58 @@ if ! grep -q "linux/vfs_dcache.h" "$XATTR_FILE"; then
 fi
 
 # Use awk to inject hook into __vfs_getxattr
-# We inject at the start of the function, before the actual xattr read
+# We inject AFTER variable declarations (look for first if/return statement)
 awk '
 BEGIN {
     in_vfs_getxattr = 0
     added_hook = 0
-    brace_count = 0
+    found_function = 0
 }
 
 # Detect start of __vfs_getxattr function
-# Match both "ssize_t\n__vfs_getxattr" and "__vfs_getxattr(" patterns
 /__vfs_getxattr\(struct dentry \*dentry/ {
     in_vfs_getxattr = 1
-    brace_count = 0
+    found_function = 0
 }
 
-# Track opening braces to find function body start
-in_vfs_getxattr && /{/ {
-    brace_count++
-    # Inject after first opening brace (function body start)
-    if (brace_count == 1 && !added_hook) {
-        print $0
-        print ""
-        print "#ifdef CONFIG_FS_DCACHE_PREFETCH"
-        print "\t/* Spoof SELinux context for NoMount injected files */"
-        print "\tif (strcmp(name, XATTR_NAME_SELINUX) == 0 && inode) {"
-        print "\t\tconst char *spoofed = nomount_get_spoofed_selinux_context(inode);"
-        print "\t\tif (spoofed) {"
-        print "\t\t\tsize_t ctx_len = strlen(spoofed) + 1;"
-        print "\t\t\tif (size == 0)"
-        print "\t\t\t\treturn ctx_len;"
-        print "\t\t\tif (size < ctx_len)"
-        print "\t\t\t\treturn -ERANGE;"
-        print "\t\t\tif (value) {"
-        print "\t\t\t\tmemcpy(value, spoofed, ctx_len);"
-        print "\t\t\t\treturn ctx_len;"
-        print "\t\t\t}"
-        print "\t\t\treturn ctx_len;"
-        print "\t\t}"
-        print "\t}"
-        print "#endif"
-        added_hook = 1
-        next
-    }
+# Look for the opening brace to confirm we are in the function body
+in_vfs_getxattr && /{$/ {
+    found_function = 1
 }
 
-# Track closing braces
-in_vfs_getxattr && /}/ {
-    brace_count--
-    if (brace_count == 0) {
-        in_vfs_getxattr = 0
-    }
+# Inject before the first "if (" statement (after declarations)
+in_vfs_getxattr && found_function && /^[[:space:]]*if \(/ && !added_hook {
+    # Print our hook BEFORE the existing if statement
+    print ""
+    print "#ifdef CONFIG_FS_DCACHE_PREFETCH"
+    print "\t/* Spoof SELinux context for NoMount injected files */"
+    print "\tif (strcmp(name, XATTR_NAME_SELINUX) == 0 && inode) {"
+    print "\t\tconst char *spoofed = nomount_get_spoofed_selinux_context(inode);"
+    print "\t\tif (spoofed) {"
+    print "\t\t\tsize_t ctx_len = strlen(spoofed) + 1;"
+    print "\t\t\tif (size == 0)"
+    print "\t\t\t\treturn ctx_len;"
+    print "\t\t\tif (size < ctx_len)"
+    print "\t\t\t\treturn -ERANGE;"
+    print "\t\t\tif (value) {"
+    print "\t\t\t\tmemcpy(value, spoofed, ctx_len);"
+    print "\t\t\t\treturn ctx_len;"
+    print "\t\t\t}"
+    print "\t\t\treturn ctx_len;"
+    print "\t\t}"
+    print "\t}"
+    print "#endif"
+    print ""
+    added_hook = 1
+    # Now print the original if statement
+    print $0
+    next
+}
+
+# Detect end of function (EXPORT_SYMBOL line)
+in_vfs_getxattr && /^EXPORT_SYMBOL/ {
+    in_vfs_getxattr = 0
+    found_function = 0
 }
 
 { print }
