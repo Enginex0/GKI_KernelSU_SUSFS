@@ -1,6 +1,9 @@
 #!/bin/bash
-# NoMount statfs.c hook injection script
-# Uses function-name matching instead of line numbers for cross-version compatibility
+# NoMount statfs.c hook injection script (FIXED)
+# Hooks user_statfs() and fd_statfs() - the actual VFS entry points
+# NOT do_statfs_native/do_statfs64 which are just format converters
+#
+# Kernel version compatibility: 5.10+
 
 set -e
 
@@ -21,110 +24,108 @@ echo "Injecting NoMount hooks into $STATFS_FILE..."
 # Create backup
 cp "$STATFS_FILE" "${STATFS_FILE}.backup"
 
-# Add include at top (after compat.h)
+# Add include at top (after compat.h or internal.h)
 if ! grep -q "linux/vfs_dcache.h" "$STATFS_FILE"; then
-    sed -i '/#include <linux\/compat.h>/a\
+    # Try after compat.h first, fallback to internal.h
+    if grep -q '#include <linux/compat.h>' "$STATFS_FILE"; then
+        sed -i '/#include <linux\/compat.h>/a\
 \
 #ifdef CONFIG_FS_DCACHE_PREFETCH\
 #include <linux/vfs_dcache.h>\
 #endif' "$STATFS_FILE"
+    elif grep -q '#include "internal.h"' "$STATFS_FILE"; then
+        sed -i '/#include "internal.h"/a\
+\
+#ifdef CONFIG_FS_DCACHE_PREFETCH\
+#include <linux/vfs_dcache.h>\
+#endif' "$STATFS_FILE"
+    else
+        # Fallback: add after first #include block
+        sed -i '0,/^#include/s//\
+#ifdef CONFIG_FS_DCACHE_PREFETCH\
+#include <linux\/vfs_dcache.h>\
+#endif\
+\
+&/' "$STATFS_FILE"
+    fi
     echo "  Added vfs_dcache.h include"
 fi
 
-# Use awk to inject hooks into vfs_statfs_native
+# Use awk to inject hooks into user_statfs() and fd_statfs()
+# These are the correct hook points - they have access to path/dentry
 awk '
 BEGIN {
-    in_statfs_native = 0
-    in_statfs64 = 0
-    added_native_hook = 0
-    added_native_label = 0
-    added_64_hook = 0
-    added_64_label = 0
+    in_user_statfs = 0
+    in_fd_statfs = 0
+    added_user_hook = 0
+    added_fd_hook = 0
 }
 
-# Detect start of vfs_statfs_native
-/^static int vfs_statfs_native\(/ { in_statfs_native = 1 }
+# Detect start of user_statfs function
+/^int user_statfs\(/ { in_user_statfs = 1 }
 
-# Add hook after "int retval;" in vfs_statfs_native
-in_statfs_native && /^[[:space:]]*int retval;/ && !added_native_hook {
+# In user_statfs: inject after "error = vfs_statfs(&path, st);" line
+# We need to inject BEFORE path_put(&path) so we still have the dentry
+in_user_statfs && /error = vfs_statfs\(&path, st\);/ && !added_user_hook {
     print $0
     print ""
     print "#ifdef CONFIG_FS_DCACHE_PREFETCH"
-    print "\t/* Spoof statfs for injected files */"
-    print "\tif (dentry->d_inode && nomount_is_injected_file(dentry->d_inode)) {"
-    print "\t\tif (nomount_spoof_statfs(dentry->d_inode, &st) == 0)"
-    print "\t\t\tgoto copy_result;"
-    print "\t}"
+    print "\t\t/* Spoof statfs for NoMount hidden paths */"
+    print "\t\tif (!error && path.dentry && path.dentry->d_inode) {"
+    print "\t\t\tnomount_spoof_statfs(path.dentry->d_inode, st);"
+    print "\t\t}"
     print "#endif"
-    added_native_hook = 1
+    added_user_hook = 1
     next
 }
 
-# Add copy_result label before else { in vfs_statfs_native
-in_statfs_native && /memcpy\(buf, &st, sizeof\(st\)\);/ && !added_native_label {
-    print $0
-    getline nextline
-    if (nextline ~ /else \{/) {
-        print "copy_result:"
-        print nextline
-        added_native_label = 1
-    } else {
-        print nextline
-    }
-    next
+# Detect end of user_statfs
+in_user_statfs && /^int fd_statfs\(|^static |^SYSCALL_DEFINE/ {
+    in_user_statfs = 0
 }
 
-# Detect end of vfs_statfs_native
-in_statfs_native && /^static int vfs_statfs64\(/ {
-    in_statfs_native = 0
-    in_statfs64 = 1
-}
+# Detect start of fd_statfs function
+/^int fd_statfs\(/ { in_fd_statfs = 1 }
 
-# Add hook after "int retval;" in vfs_statfs64
-in_statfs64 && /^[[:space:]]*int retval;/ && !added_64_hook {
+# In fd_statfs: inject after "error = vfs_statfs(&f.file->f_path, st);" line
+# We need to inject BEFORE fdput(f) so we still have the file reference
+in_fd_statfs && /error = vfs_statfs\(&f\.file->f_path, st\);/ && !added_fd_hook {
     print $0
     print ""
     print "#ifdef CONFIG_FS_DCACHE_PREFETCH"
-    print "\t/* Spoof statfs64 for injected files */"
-    print "\tif (dentry->d_inode && nomount_is_injected_file(dentry->d_inode)) {"
-    print "\t\tif (nomount_spoof_statfs(dentry->d_inode, &st) == 0)"
-    print "\t\t\tgoto copy_result64;"
-    print "\t}"
+    print "\t\t/* Spoof statfs for NoMount hidden paths */"
+    print "\t\tif (!error && f.file->f_path.dentry && f.file->f_path.dentry->d_inode) {"
+    print "\t\t\tnomount_spoof_statfs(f.file->f_path.dentry->d_inode, st);"
+    print "\t\t}"
     print "#endif"
-    added_64_hook = 1
+    added_fd_hook = 1
     next
 }
 
-# Add copy_result64 label before else { in vfs_statfs64
-in_statfs64 && /memcpy\(buf, &st, sizeof\(st\)\);/ && !added_64_label {
-    print $0
-    getline nextline
-    if (nextline ~ /else \{/) {
-        print "copy_result64:"
-        print nextline
-        added_64_label = 1
-    } else {
-        print nextline
-    }
-    next
-}
-
-# Detect end of vfs_statfs64
-in_statfs64 && /^static int vfs_ustatfs\(|^SYSCALL_DEFINE/ {
-    in_statfs64 = 0
+# Detect end of fd_statfs (next function)
+in_fd_statfs && /^static |^SYSCALL_DEFINE|^int / && !/fd_statfs/ {
+    in_fd_statfs = 0
 }
 
 { print }
+
+END {
+    if (added_user_hook) print "# user_statfs hook added" > "/dev/stderr"
+    if (added_fd_hook) print "# fd_statfs hook added" > "/dev/stderr"
+}
 ' "$STATFS_FILE" > "${STATFS_FILE}.new"
 
 mv "${STATFS_FILE}.new" "$STATFS_FILE"
 
 # Verify injection succeeded
 if grep -q "nomount_spoof_statfs" "$STATFS_FILE"; then
-    echo "  SUCCESS: statfs hooks injected"
+    # Count hooks
+    HOOK_COUNT=$(grep -c "nomount_spoof_statfs" "$STATFS_FILE")
+    echo "  SUCCESS: $HOOK_COUNT statfs hook(s) injected"
     rm -f "${STATFS_FILE}.backup"
 else
     echo "  WARNING: statfs hooks may not have been injected correctly"
+    echo "  Restoring backup..."
     mv "${STATFS_FILE}.backup" "$STATFS_FILE"
     exit 1
 fi
