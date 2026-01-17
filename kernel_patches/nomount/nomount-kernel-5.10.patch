@@ -131,7 +131,7 @@ new file mode 100644
 index 000000000..43ca3f0fa
 --- /dev/null
 +++ b/fs/vfs_dcache.c
-@@ -0,0 +1,1047 @@
+@@ -0,0 +1,1013 @@
 +#include <linux/module.h>
 +#include <linux/kernel.h>
 +#include <linux/init.h>
@@ -270,16 +270,12 @@ index 000000000..43ca3f0fa
 +	if (!inode || NOMOUNT_DISABLED()) return NULL;
 +	if (nomount_is_uid_blocked(current_uid().val)) return NULL;
 +
-+#ifdef CONFIG_KSU_SUSFS
-+	/* Don't expose virtual paths to detection target processes */
-+	if (susfs_is_current_proc_umounted()) return NULL;
-+#endif
-+
 +	rcu_read_lock();
 +	hash_for_each_rcu(nomount_rules_ht, bkt, rule, node) {
-+		if (rule->real_ino != 0 && rule->real_ino == inode->i_ino) {            
++		if (rule->real_ino != 0 && rule->real_ino == inode->i_ino) {
 +			if (rule->is_new) {
 +				found_path = kstrdup(rule->virtual_path, GFP_ATOMIC);
++				/* kstrdup may return NULL on OOM - callers handle NULL returns */
 +			}
 +			break;
 +		}
@@ -410,11 +406,6 @@ index 000000000..43ca3f0fa
 +	if (!inode || NOMOUNT_DISABLED() || nomount_is_uid_blocked(current_uid().val)) return false;
 +	if (!(mask & MAY_EXEC)) return false;
 +
-+#ifdef CONFIG_KSU_SUSFS
-+	/* Don't bypass permission checks for detection target processes */
-+	if (susfs_is_current_proc_umounted()) return false;
-+#endif
-+
 +	if ((nm_ino_adb != 0 && inode->i_ino == nm_ino_adb) ||
 +		(nm_ino_modules != 0 && inode->i_ino == nm_ino_modules)) {
 +		return true;
@@ -429,11 +420,6 @@ index 000000000..43ca3f0fa
 +	bool match = false;
 +	if (!inode || NOMOUNT_DISABLED()) return false;
 +
-+#ifdef CONFIG_KSU_SUSFS
-+	/* Don't expose injected files to detection target processes */
-+	if (susfs_is_current_proc_umounted()) return false;
-+#endif
-+
 +	rcu_read_lock();
 +	hash_for_each_rcu(nomount_rules_ht, bkt, rule, node) {
 +		if (rule->real_ino != 0 && rule->real_ino == inode->i_ino) {
@@ -442,7 +428,7 @@ index 000000000..43ca3f0fa
 +		}
 +	}
 +	rcu_read_unlock();
-+	
++
 +	return match;
 +}
 +EXPORT_SYMBOL(nomount_is_injected_file);
@@ -450,14 +436,10 @@ index 000000000..43ca3f0fa
 +void nomount_spoof_stat(struct inode *inode, struct kstat *stat)
 +{
 +	struct nomount_rule *rule;
++	int bkt;
 +
 +	if (!inode || NOMOUNT_DISABLED())
 +		return;
-+
-+#ifdef CONFIG_KSU_SUSFS
-+	if (susfs_is_current_proc_umounted())
-+		return;
-+#endif
 +
 +	if (nomount_is_uid_blocked(current_uid().val))
 +		return;
@@ -466,7 +448,7 @@ index 000000000..43ca3f0fa
 +		nomount_init_partition_devs();
 +
 +	rcu_read_lock();
-+	hash_for_each_possible_rcu(nomount_rules_ht, rule, node, inode->i_ino) {
++	hash_for_each_rcu(nomount_rules_ht, bkt, rule, node) {
 +		if (rule->real_ino == inode->i_ino) {
 +			stat->dev = nomount_get_partition_dev(rule->virtual_path);
 +			stat->ino = rule->virtual_ino;
@@ -496,11 +478,6 @@ index 000000000..43ca3f0fa
 +
 +	if (!inode || NOMOUNT_DISABLED())
 +		return NULL;
-+
-+#ifdef CONFIG_KSU_SUSFS
-+	if (susfs_is_current_proc_umounted())
-+		return NULL;
-+#endif
 +
 +	if (nomount_is_uid_blocked(current_uid().val))
 +		return NULL;
@@ -589,11 +566,6 @@ index 000000000..43ca3f0fa
 +	if (!inode || !buf || NOMOUNT_DISABLED())
 +		return -EINVAL;
 +
-+#ifdef CONFIG_KSU_SUSFS
-+	if (susfs_is_current_proc_umounted())
-+		return -EINVAL;
-+#endif
-+
 +	if (nomount_is_uid_blocked(current_uid().val))
 +		return -EINVAL;
 +
@@ -628,7 +600,8 @@ index 000000000..43ca3f0fa
 +		if (nomount_match_path(pathname, rule->virtual_path)) {
 +			if (rule->flags & NM_FLAG_ACTIVE) {
 +				target = kstrdup(rule->real_path, GFP_ATOMIC);
-+				break; 
++				/* NULL on OOM - caller handles NULL gracefully */
++				break;
 +			}
 +		}
 +	}
@@ -644,11 +617,6 @@ index 000000000..43ca3f0fa
 +
 +	if (NOMOUNT_DISABLED() || nomount_is_uid_blocked(current_uid().val) || !name || name->name[0] != '/')
 +		return name;
-+
-+#ifdef CONFIG_KSU_SUSFS
-+	/* Skip NoMount path resolution for detection target processes */
-+	if (susfs_is_current_proc_umounted()) return name;
-+#endif
 +
 +	target_path = nomount_resolve_path(name->name);
 +	if (target_path) {
@@ -701,11 +669,6 @@ index 000000000..43ca3f0fa
 +
 +	if (NOMOUNT_DISABLED() || nomount_is_uid_blocked(current_uid().val)) return;
 +
-+#ifdef CONFIG_KSU_SUSFS
-+	/* Don't inject directory entries for detection target processes */
-+	if (susfs_is_current_proc_umounted()) return;
-+#endif
-+
 +	page_buf = __getname();
 +	if (!page_buf) return;
 +
@@ -723,7 +686,7 @@ index 000000000..43ca3f0fa
 +	}
 +
 +	while (1) {
-+		if (!nomount_find_next_injection(dir_path, v_index, name_buf, &type_buf)) 
++		if (!nomount_find_next_injection(dir_path, v_index, name_buf, &type_buf))
 +			break;
 +
 +		name_len = strlen(name_buf);
@@ -732,8 +695,8 @@ index 000000000..43ca3f0fa
 +		if (*count < reclen) break;
 +
 +		curr_dirent = (struct linux_dirent64 __user *)*dirent;
-+		
-+		fake_ino = nomount_generate_ino(dir_path, name_buf); 
++
++		fake_ino = nomount_generate_ino(dir_path, name_buf);
 +		if (put_user(fake_ino, &curr_dirent->d_ino) ||
 +			put_user(NOMOUNT_MAGIC_POS + v_index + 1, &curr_dirent->d_off) ||
 +			put_user(reclen, &curr_dirent->d_reclen) ||
@@ -763,11 +726,6 @@ index 000000000..43ca3f0fa
 +	unsigned long fake_ino;
 +
 +	if (NOMOUNT_DISABLED() || nomount_is_uid_blocked(current_uid().val)) return;
-+
-+#ifdef CONFIG_KSU_SUSFS
-+	/* Don't inject directory entries for detection target processes */
-+	if (susfs_is_current_proc_umounted()) return;
-+#endif
 +
 +	page_buf = __getname();
 +	if (!page_buf) return;
@@ -864,6 +822,10 @@ index 000000000..43ca3f0fa
 +		if (!dir_node) goto unlock_out;
 +
 +		dir_node->dir_path = kstrdup(parent_path, GFP_ATOMIC);
++		if (!dir_node->dir_path) {
++			kfree(dir_node);
++			goto unlock_out;
++		}
 +		INIT_LIST_HEAD(&dir_node->children_names);
 +		hash_add_rcu(nomount_dirs_ht, &dir_node->node, hash);
 +	}
@@ -879,6 +841,10 @@ index 000000000..43ca3f0fa
 +		child = kzalloc(sizeof(*child), GFP_ATOMIC);
 +		if (child) {
 +			child->name = kstrdup(name, GFP_ATOMIC);
++			if (!child->name) {
++				kfree(child);
++				goto unlock_out;
++			}
 +			child->d_type = (type == DT_DIR) ? 4 : 8;
 +			list_add_tail_rcu(&child->list, &dir_node->children_names);
 +		}
