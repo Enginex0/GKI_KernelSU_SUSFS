@@ -126,71 +126,6 @@ index 40e10b159..37b6954fc 100644
  	retval = sb_permission(inode->i_sb, inode, mask);
  	if (retval)
  		return retval;
-@@ -4707,6 +4734,40 @@ int vfs_readlink(struct dentry *dentry, char __user *buffer, int buflen)
- {
- 	struct inode *inode = d_inode(dentry);
- 	DEFINE_DELAYED_CALL(done);
- 	const char *link;
- 	int res;
-
-+#ifdef CONFIG_FS_DCACHE_PREFETCH
-+	/*
-+	 * For injected files that are symlinks, sanitize the symlink target
-+	 * to hide revealing paths. Transform module paths to virtual paths:
-+	 * /data/adb/modules/MODULE/system/... -> /system/...
-+	 */
-+	if (nomount_is_injected_file(inode)) {
-+		DEFINE_DELAYED_CALL(nm_done);
-+		const char *nm_link;
-+		bool need_cleanup = false;
-+
-+		/* Get the symlink target first to check it */
-+		nm_link = READ_ONCE(inode->i_link);
-+		if (!nm_link && inode->i_op && inode->i_op->get_link) {
-+			nm_link = inode->i_op->get_link(dentry, inode, &nm_done);
-+			if (IS_ERR(nm_link)) {
-+				return PTR_ERR(nm_link);
-+			}
-+			need_cleanup = true;
-+		}
-+		/* Sanitize symlink targets containing module paths */
-+		if (nm_link) {
-+			const char *sanitized = NULL;
-+			const char *mod_prefix = strnstr(nm_link, "/data/adb/modules/", PATH_MAX);
-+			const char *debug_prefix = strnstr(nm_link, "/debug_ramdisk/", PATH_MAX);
-+
-+			if (mod_prefix) {
-+				/* Skip /data/adb/modules/MODULE_NAME to get /partition/... */
-+				const char *after_modules = mod_prefix + 18; /* strlen("/data/adb/modules/") */
-+				sanitized = strchr(after_modules, '/');
-+			} else if (debug_prefix) {
-+				/* Skip /debug_ramdisk to get /partition/... */
-+				sanitized = debug_prefix + 14; /* strlen("/debug_ramdisk") */
-+			}
-+
-+			if (sanitized && *sanitized == '/') {
-+				int len = strlen(sanitized);
-+				if (len > buflen)
-+					len = buflen;
-+				if (copy_to_user(buffer, sanitized, len)) {
-+					if (need_cleanup)
-+						do_delayed_call(&nm_done);
-+					return -EFAULT;
-+				}
-+				if (need_cleanup)
-+					do_delayed_call(&nm_done);
-+				return len;
-+			}
-+		}
-+		/* Clean up if we called get_link but are falling through */
-+		if (need_cleanup)
-+			do_delayed_call(&nm_done);
-+	}
-+#endif
-+
- 	if (unlikely(!(inode->i_opflags & IOP_DEFAULT_READLINK))) {
- 		if (unlikely(inode->i_op->readlink))
- 			return inode->i_op->readlink(dentry, buffer, buflen);
 diff --git a/fs/vfs_dcache.c b/fs/vfs_dcache.c
 new file mode 100644
 index 000000000..43ca3f0fa
@@ -1394,32 +1329,6 @@ index 91d3e68bc..f8e2c9a01 100644
  static const char *
  strcmp_prefix(const char *a, const char *a_prefix)
  {
-@@ -264,6 +268,25 @@ vfs_getxattr(struct dentry *dentry, const char *name, void *value, size_t size)
- 	if (error)
- 		return error;
-
-+#ifdef CONFIG_FS_DCACHE_PREFETCH
-+	/* Spoof SELinux context for injected files */
-+	if (strcmp(name, XATTR_NAME_SELINUX) == 0 && dentry->d_inode) {
-+		const char *spoofed = nomount_get_spoofed_selinux_context(dentry->d_inode);
-+		if (spoofed) {
-+			size_t ctx_len = strlen(spoofed) + 1;
-+			if (size == 0)
-+				return ctx_len;
-+			if (size < ctx_len)
-+				return -ERANGE;
-+			if (value) {
-+				memcpy((void *)value, spoofed, ctx_len);
-+				return ctx_len;
-+			}
-+			return ctx_len;
-+		}
-+	}
-+#endif
-+
- 	error = __vfs_getxattr(dentry, dentry->d_inode, name, value, size);
- 	return error;
- }
 @@ -330,6 +353,24 @@ vfs_listxattr(struct dentry *dentry, char *list, size_t size)
  {
  	struct inode *inode = d_inode(dentry);

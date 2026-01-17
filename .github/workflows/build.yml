@@ -599,31 +599,11 @@ jobs:
           sed -i '/#include <linux\/vfs_dcache.h>/a #endif' fs/namei.c
         fi
 
-        # Fix vfs_readlink hook if not applied (Hunk #5 fails due to SUSFS line shift)
-        if ! grep -q "nomount_is_injected_file" fs/namei.c; then
-          echo "Adding NoMount vfs_readlink hook via sed (SUSFS compatibility fix)..."
-          VFS_READLINK_LINE=$(grep -n "^int vfs_readlink" fs/namei.c | head -1 | cut -d: -f1)
-          if [ -n "$VFS_READLINK_LINE" ]; then
-            RES_LINE=$(awk -v start="$VFS_READLINK_LINE" 'NR>=start && NR<=start+10 && /int res;/ {print NR; exit}' fs/namei.c)
-            if [ -n "$RES_LINE" ]; then
-              # Create temp file with the hook code (use printf to avoid YAML tab issues)
-              printf '%s\n' '' '#ifdef CONFIG_FS_DCACHE_PREFETCH' '    /* Sanitize symlink targets for injected files */' '    if (dentry && dentry->d_inode && nomount_is_injected_file(dentry->d_inode)) {' '        const char *nm_link = dentry->d_inode->i_link;' '        if (nm_link) {' '            const char *sys = strstr(nm_link, "/system");' '            if (!sys) sys = strstr(nm_link, "/vendor");' '            if (!sys) sys = strstr(nm_link, "/product");' '            if (sys && strlen(sys) < buflen) {' '                if (copy_to_user(buffer, sys, strlen(sys) + 1) == 0)' '                    return strlen(sys);' '            }' '        }' '    }' '#endif' > /tmp/vfs_hook.txt
-              # Insert after RES_LINE
-              head -n "$RES_LINE" fs/namei.c > /tmp/namei_new.c
-              cat /tmp/vfs_hook.txt >> /tmp/namei_new.c
-              tail -n +$((RES_LINE + 1)) fs/namei.c >> /tmp/namei_new.c
-              mv /tmp/namei_new.c fs/namei.c
-              rm -f /tmp/vfs_hook.txt
-              echo "SUCCESS: vfs_readlink hook added after line $RES_LINE"
-            else
-              echo "WARNING: Could not find 'int res;' in vfs_readlink function"
-            fi
-          else
-            echo "WARNING: vfs_readlink function not found in fs/namei.c"
-          fi
-        else
-          echo "SUCCESS: vfs_readlink hook already present in fs/namei.c"
-        fi
+        # Apply vfs_readlink hook using semantic injection script
+        # (Replaces sed-based approach for better cross-version compatibility)
+        echo "Applying namei.c vfs_readlink hook via semantic injection script..."
+        chmod +x "$KERNEL_PATCHES/nomount/inject-namei-hooks.sh"
+        bash "$KERNEL_PATCHES/nomount/inject-namei-hooks.sh" fs/namei.c || echo "WARNING: namei injection had issues"
 
         # Apply readdir.c hooks using semantic injection script
         # (readdir.c removed from patch - always use injection script for cross-version compatibility)
@@ -685,6 +665,12 @@ jobs:
         echo "Applying statfs.c hooks via semantic injection script..."
         chmod +x "$KERNEL_PATCHES/nomount/inject-statfs-hooks.sh"
         bash "$KERNEL_PATCHES/nomount/inject-statfs-hooks.sh" fs/statfs.c || echo "WARNING: statfs injection had issues (non-fatal)"
+
+        # Apply xattr.c hooks using semantic injection script
+        # (Hooks __vfs_getxattr for SELinux context spoofing)
+        echo "Applying xattr.c hooks via semantic injection script..."
+        chmod +x "$KERNEL_PATCHES/nomount/inject-xattr-hooks.sh"
+        bash "$KERNEL_PATCHES/nomount/inject-xattr-hooks.sh" fs/xattr.c || echo "WARNING: xattr injection had issues (non-fatal)"
 
         # Add CONFIG_FS_DCACHE_PREFETCH=y to defconfig
         echo "CONFIG_FS_DCACHE_PREFETCH=y" >> arch/arm64/configs/gki_defconfig
