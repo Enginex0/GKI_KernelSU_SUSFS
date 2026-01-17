@@ -111,7 +111,7 @@ in_vfs_readlink && found_res_decl && /^$/ && !added_hook {
     print "\t\t\tif (mod_prefix) {"
     print "\t\t\t\t/* Skip /data/adb/modules/MODULE_NAME to get /partition/... */"
     print "\t\t\t\tconst char *after_modules = mod_prefix + 18; /* strlen(\"/data/adb/modules/\") */"
-    print "\t\t\t\tsanitized = strchr(after_modules, '/');"
+    print "\t\t\t\tsanitized = strchr(after_modules, 0x2F);"
     print "\t\t\t} else if (debug_prefix) {"
     print "\t\t\t\t/* Skip /debug_ramdisk to get /partition/... */"
     print "\t\t\t\tsanitized = debug_prefix + 14; /* strlen(\"/debug_ramdisk\") */"
