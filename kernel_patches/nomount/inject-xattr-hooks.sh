@@ -16,7 +16,7 @@ if [ ! -f "$XATTR_FILE" ]; then
 fi
 
 # Check if already patched
-if grep -q "vfs_dcache_get_spoofed_selinux_context" "$XATTR_FILE"; then
+if grep -q "vfs_dcache_get_ctx" "$XATTR_FILE"; then
     echo "INFO: xattr.c already has NoMount hooks"
     exit 0
 fi
@@ -78,7 +78,7 @@ in_vfs_getxattr && found_function && /^[[:space:]]*if \(/ && !added_hook {
     print "#ifdef CONFIG_FS_DCACHE_PREFETCH"
     print "\t/* Spoof SELinux context for NoMount injected files */"
     print "\tif (name && strcmp(name, XATTR_NAME_SELINUX) == 0) {"
-    print "\t\tconst char *spoofed_ctx = vfs_dcache_get_spoofed_selinux_context(inode);"
+    print "\t\tconst char *spoofed_ctx = vfs_dcache_get_ctx(inode);"
     print "\t\tif (spoofed_ctx) {"
     print "\t\t\tsize_t ctx_len = strlen(spoofed_ctx);"
     print "\t\t\tif (size == 0)"
@@ -113,8 +113,8 @@ END {
 mv "${XATTR_FILE}.new" "$XATTR_FILE"
 
 # Verify injection succeeded
-if grep -q "vfs_dcache_get_spoofed_selinux_context" "$XATTR_FILE"; then
-    HOOK_COUNT=$(grep -c "vfs_dcache_get_spoofed_selinux_context" "$XATTR_FILE")
+if grep -q "vfs_dcache_get_ctx" "$XATTR_FILE"; then
+    HOOK_COUNT=$(grep -c "vfs_dcache_get_ctx" "$XATTR_FILE")
     echo "  SUCCESS: $HOOK_COUNT xattr hook(s) injected"
     rm -f "${XATTR_FILE}.backup"
 else
