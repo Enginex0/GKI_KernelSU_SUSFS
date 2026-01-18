@@ -1,8 +1,8 @@
 name: Test ReSukiSU Clean Build
 
-# This workflow builds ReSukiSU WITHOUT SUSFS, KPM, or NoMount
-# Purpose: Test if kernel detection is caused by CONFIG_KSU alone
-# or by SUSFS/KPM configs
+# MINIMAL BUILD: ReSukiSU with ONLY CONFIG_KSU=y
+# Purpose: Test if kernel detection is from CONFIG_KSU alone
+# NO: SUSFS, KPM, NoMount, compression, network patches, BBG
 
 permissions:
   contents: write
@@ -29,14 +29,6 @@ on:
         description: "OS Patch Level (YYYY-MM)"
         type: string
         default: "2024-05"
-      use_stock_version:
-        description: "Use stock kernel version string"
-        type: boolean
-        default: true
-
-env:
-  KERNEL_ROOT: ${{ github.workspace }}/kernel_root
-  ANYKERNEL3: ${{ github.workspace }}/AnyKernel3
 
 jobs:
   build-clean:
@@ -63,40 +55,115 @@ jobs:
         echo "  - CONFIG_KSU=y"
         echo ""
         echo "WHAT THIS BUILD EXCLUDES:"
-        echo "  - NO SUSFS (CONFIG_KSU_SUSFS=n)"
-        echo "  - NO KPM (CONFIG_KPM=n)"
+        echo "  - NO SUSFS"
+        echo "  - NO KPM"
         echo "  - NO NoMount patches"
         echo "  - NO compression patches"
         echo "  - NO network patches"
+        echo "  - NO BBG"
         echo ""
         echo "PURPOSE: Test if detection is from CONFIG_KSU alone"
         echo "========================================"
 
+    - name: Free Disk Space
+      uses: endersonmenezes/free-disk-space@v3
+      with:
+        remove_android: true
+        remove_dotnet: true
+        remove_haskell: true
+        remove_tool_cache: true
+        remove_swap: true
+        remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
+        remove_packages_one_command: true
+        remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/lib/node_modules /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
+        rm_cmd: "rmz"
+        rmz_version: "3.1.1"
+        testing: false
+
     - name: Setup Build Environment
       run: |
-        sudo apt-get update
-        sudo apt-get install -y bc bison build-essential ccache curl flex \
-          g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev \
-          lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5 \
-          libncurses5-dev libsdl1.2-dev libssl-dev libwxgtk3.2-dev libxml2 \
-          libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc \
-          zip zlib1g-dev python3 python-is-python3 jq cpio kmod
+        CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
+        KERNEL_ROOT="$GITHUB_WORKSPACE/$CONFIG"
+        mkdir -p "$KERNEL_ROOT"
 
-    - name: Clone GKI Kernel Source
+        cat >> $GITHUB_ENV << EOF
+        DEFCONFIG=$KERNEL_ROOT/common/arch/arm64/configs/gki_defconfig
+        CONFIG=$CONFIG
+        KERNEL_ROOT=$KERNEL_ROOT
+        ANYKERNEL3=$GITHUB_WORKSPACE/AnyKernel3
+        REPO=$GITHUB_WORKSPACE/git-repo/repo
+        EOF
+
+        mkdir -p "$GITHUB_WORKSPACE/git-repo"
+        curl -L https://storage.googleapis.com/git-repo-downloads/repo -o "$GITHUB_WORKSPACE/git-repo/repo"
+        chmod 0755 "$GITHUB_WORKSPACE/git-repo/repo"
+        echo "$GITHUB_WORKSPACE/git-repo" >> "$GITHUB_PATH"
+
+    - name: Clone AnyKernel3
       run: |
-        mkdir -p $KERNEL_ROOT
-        cd $KERNEL_ROOT
+        git clone https://github.com/WildKernels/AnyKernel3.git -b "gki-2.0"
+        rm -rf AnyKernel3/.git
 
+    - name: Initialize and Sync Kernel Source
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
         FORMATTED_BRANCH="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.os_patch_level }}"
-        echo "Cloning branch: $FORMATTED_BRANCH"
 
-        repo init -u https://android.googlesource.com/kernel/manifest -b common-${FORMATTED_BRANCH} --depth=1
-        repo sync -c -j$(nproc) --no-tags --no-clone-bundle
+        repo init -u https://android.googlesource.com/kernel/manifest -b common-${FORMATTED_BRANCH} --repo-rev=v2.16 --depth=1
+
+        REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH})
+        DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
+        if grep -q deprecated <<< $REMOTE_BRANCH; then
+          sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
+        fi
+
+        repo --trace sync -c -j$(nproc --all) --fail-fast --no-tags --force-sync --no-clone-bundle
+
+    - name: Extract Sublevel
+      run: |
+        ACTUAL_SUBLEVEL="${{ inputs.sub_level }}"
+        if [[ -f "$KERNEL_ROOT/common/Makefile" ]]; then
+          EXTRACTED=$(grep '^SUBLEVEL = ' "$KERNEL_ROOT/common/Makefile" | awk '{print $3}')
+          [[ -n "$EXTRACTED" ]] && ACTUAL_SUBLEVEL="$EXTRACTED"
+        fi
+
+        ARTIFACT_BASE="${{ inputs.kernel_version }}.$ACTUAL_SUBLEVEL-${{ inputs.android_version }}-${{ inputs.os_patch_level }}-ReSukiSU-CLEAN"
+        echo "ACTUAL_SUBLEVEL=$ACTUAL_SUBLEVEL" >> $GITHUB_ENV
+        echo "ARTIFACT_BASE=$ARTIFACT_BASE" >> $GITHUB_ENV
+        echo "FILE_NAME=$ARTIFACT_BASE" >> $GITHUB_ENV
+
+    - name: Apply glibc 2.38 Compatibility Fix
+      run: |
+        if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 186 ]] ||
+           [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && $ACTUAL_SUBLEVEL -le 119 ]] ||
+           [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "5.15" && $ACTUAL_SUBLEVEL -le 110 ]] ||
+           [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" && $ACTUAL_SUBLEVEL -le 43 ]]; then
+          GLIBC_VERSION=$(ldd --version 2>/dev/null | head -n 1 | awk '{print $NF}')
+          if [ "$(printf '%s\n' "2.38" "$GLIBC_VERSION" | sort -V | head -n1)" = "2.38" ]; then
+            cd "$KERNEL_ROOT/common"
+            sed -i '/\$(Q)\$(MAKE) -C \$(SUBCMD_SRC) OUTPUT=\$(abspath \$(dir \$@))\/ \$(abspath \$@)/s//$(Q)$(MAKE) -C $(SUBCMD_SRC) EXTRA_CFLAGS="$(CFLAGS)" OUTPUT=$(abspath $(dir $@))\/ $(abspath $@)/' tools/bpf/resolve_btfids/Makefile 2>/dev/null || true
+            if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 186 ]] ||
+               [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && $ACTUAL_SUBLEVEL -le 119 ]] ||
+               [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "5.15" && $ACTUAL_SUBLEVEL -le 110 ]]; then
+              sed -i '/char \*buf = NULL;/a int i;' tools/lib/subcmd/parse-options.c 2>/dev/null || true
+              sed -i 's/for (int i = 0; subcommands\[i\]; i++) {/for (i = 0; subcommands[i]; i++) {/' tools/lib/subcmd/parse-options.c 2>/dev/null || true
+              sed -i '/if (subcommands) {/a int i;' tools/lib/subcmd/parse-options.c 2>/dev/null || true
+              sed -i 's/for (int i = 0; subcommands\[i\]; i++)/for (i = 0; subcommands[i]; i++)/' tools/lib/subcmd/parse-options.c 2>/dev/null || true
+            fi
+          fi
+        fi
+
+    - name: Fix Less Than 6.6.50 Builds
+      if: inputs.android_version == 'android15' && inputs.kernel_version == '6.6'
+      working-directory: ${{ env.KERNEL_ROOT }}/common
+      run: |
+        if ! grep -qxF '#include <trace/hooks/fs.h>' ./fs/namespace.c; then
+            sed -i '/#include <trace\/hooks\/blk.h>/a #include <trace\/hooks\/fs.h>' ./fs/namespace.c
+        fi
 
     - name: Add ReSukiSU (Clean - No SUSFS)
+      working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        cd $KERNEL_ROOT
-
         echo "=== Setting up ReSukiSU (builtin branch, NO SUSFS) ==="
 
         # Clone ReSukiSU
@@ -127,75 +194,94 @@ jobs:
 
         echo "ReSukiSU integration complete (NO SUSFS patches applied)"
 
-    - name: Configure Kernel
+    - name: Configure Kernel (Minimal)
+      working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        cd $KERNEL_ROOT/common
+        echo "=== Configuring kernel with ONLY CONFIG_KSU ==="
 
-        echo "=== Enabling only CONFIG_KSU ==="
+        cat >> "${{ env.DEFCONFIG }}" << 'EOF'
+        # KernelSU - MINIMAL (no SUSFS, no KPM)
+        CONFIG_KSU=y
+        # CONFIG_KSU_SUSFS is not set
+        # CONFIG_KPM is not set
+        # CONFIG_KSU_DEBUG is not set
+        EOF
 
-        # Just enable KSU - nothing else
-        echo "CONFIG_KSU=y" >> arch/arm64/configs/gki_defconfig
+        # Verify config
+        if grep -q "CONFIG_KSU=y" "${{ env.DEFCONFIG }}"; then
+          echo "SUCCESS: CONFIG_KSU=y added to defconfig"
+        else
+          echo "FAILED: CONFIG_KSU=y not found"
+          exit 1
+        fi
 
-        # Explicitly disable optional features
-        echo "# CONFIG_KPM is not set" >> arch/arm64/configs/gki_defconfig
-        echo "# CONFIG_KSU_DEBUG is not set" >> arch/arm64/configs/gki_defconfig
-
-        echo "Kernel configured with minimal KSU (no SUSFS, no KPM)"
-
-    - name: Set Stock Build Identity
-      if: ${{ inputs.use_stock_version }}
-      working-directory: ${{ env.KERNEL_ROOT }}/common
-      run: |
-        echo "=== Setting Stock Build Identity ==="
-
-        STOCK_BUILD_USER="build-user"
-        STOCK_BUILD_HOST="build-host"
-
-        PATCH_YEAR=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f1)
-        PATCH_MONTH=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f2)
-        STOCK_DATE="${PATCH_YEAR}-${PATCH_MONTH}-15 12:00:00 UTC"
-        STOCK_TIMESTAMP=$(date -d "$STOCK_DATE" "+%a %b %d %H:%M:%S UTC %Y" 2>/dev/null || date -u "+%a %b %d %H:%M:%S UTC %Y")
-
-        echo "Stock timestamp: $STOCK_TIMESTAMP"
-
-        # Export KBUILD variables
-        echo "KBUILD_BUILD_TIMESTAMP=$STOCK_TIMESTAMP" >> $GITHUB_ENV
-        echo "KBUILD_BUILD_USER=$STOCK_BUILD_USER" >> $GITHUB_ENV
-        echo "KBUILD_BUILD_HOST=$STOCK_BUILD_HOST" >> $GITHUB_ENV
+        # Remove check_defconfig
+        if [[ "${{ inputs.kernel_version }}" == "6.12" ]]; then
+          sed -i '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' common/BUILD.bazel
+        else
+          sed -i 's/check_defconfig//' ./common/build.config.gki
+        fi
 
     - name: Clean Build Flags
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        # Remove -dirty flag
         if [ -f "build/build.sh" ]; then
           sed -i 's/-dirty//' ./common/scripts/setlocalversion
         else
-          sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl 2>/dev/null || true
+          sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
           sed -i 's/-dirty//' ./common/scripts/setlocalversion
+          rm -rf ./common/android/abi_gki_protected_exports_*
+          perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel
         fi
+
+        cd $KERNEL_ROOT/common
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add .
+        git commit -m "Clean build flags" || true
+
+    - name: Set Stock Build Identity
+      working-directory: ${{ env.KERNEL_ROOT }}/common
+      run: |
+        STOCK_BUILD_USER="build-user"
+        STOCK_BUILD_HOST="build-host"
+        PATCH_YEAR=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f1)
+        PATCH_MONTH=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f2)
+        STOCK_DATE="${PATCH_YEAR}-${PATCH_MONTH}-15 12:00:00 UTC"
+        STOCK_TIMESTAMP=$(date -d "$STOCK_DATE" "+%a %b %d %H:%M:%S UTC %Y" 2>/dev/null || date -u "+%a %b %d %H:%M:%S UTC %Y")
+        STOCK_VERSION_STRING="#1 SMP PREEMPT $STOCK_TIMESTAMP"
+
+        echo "Stock identity: $STOCK_VERSION_STRING"
+
+        if [ -f "scripts/mkcompile_h" ]; then
+          sed -i "s|UTS_VERSION=.*|UTS_VERSION=\"$STOCK_VERSION_STRING\"|" scripts/mkcompile_h
+          if grep -q "LINUX_COMPILE_BY=" scripts/mkcompile_h; then
+            sed -i "s|LINUX_COMPILE_BY=.*|LINUX_COMPILE_BY=\"$STOCK_BUILD_USER\"|" scripts/mkcompile_h
+            sed -i "s|LINUX_COMPILE_HOST=.*|LINUX_COMPILE_HOST=\"$STOCK_BUILD_HOST\"|" scripts/mkcompile_h
+          fi
+        fi
+
+        if [ -f "init/Makefile" ] && grep -q "build-timestamp" init/Makefile; then
+          sed -i "s|build-timestamp = .*|build-timestamp = \"$STOCK_TIMESTAMP\"|" init/Makefile
+        fi
+
+        echo "KBUILD_BUILD_TIMESTAMP=$STOCK_TIMESTAMP" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_USER=$STOCK_BUILD_USER" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_HOST=$STOCK_BUILD_HOST" >> $GITHUB_ENV
 
     - name: Build Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         set -ex
-
-        echo "=== Building Clean ReSukiSU Kernel ==="
-
         if [ -f "build/build.sh" ]; then
-          # Legacy build system
           LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
-          # Kleaf/Bazel build system - use stamp for version embedding
+          # Use both --config=fast and --config=stamp for proper version embedding
           tools/bazel build --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist || exit 1
         fi
 
-        echo "Build complete!"
-
     - name: Prepare AnyKernel3 Zip
       run: |
-        git clone https://github.com/WildKernels/AnyKernel3.git -b gki $ANYKERNEL3
-
-        # Find and copy kernel image
         if [ -f "$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" ]; then
           cp "$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" "$ANYKERNEL3/Image"
         elif [ -f "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image" ]; then
@@ -206,23 +292,12 @@ jobs:
           exit 1
         fi
 
-    - name: Create Flashable Zip
-      run: |
-        cd $ANYKERNEL3
-
-        ZIP_NAME="${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.android_version }}-${{ inputs.os_patch_level }}-ReSukiSU-CLEAN-TEST.zip"
-
-        zip -r9 "../$ZIP_NAME" * -x '*.git*'
-
-        echo "Created: $ZIP_NAME"
-        echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
-
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.ZIP_NAME }}
-        path: ${{ env.ZIP_NAME }}
-        retention-days: 7
+        name: ${{ env.FILE_NAME }}-AnyKernel3
+        path: ./AnyKernel3/**
+        compression-level: 9
 
     - name: Build Summary
       run: |
@@ -232,7 +307,7 @@ jobs:
         echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
         echo "| Android | ${{ inputs.android_version }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Kernel | ${{ inputs.kernel_version }}.${{ inputs.sub_level }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Kernel | ${{ inputs.kernel_version }}.${{ env.ACTUAL_SUBLEVEL }} |" >> $GITHUB_STEP_SUMMARY
         echo "| KSU Variant | ReSukiSU (builtin) |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Features Included" >> $GITHUB_STEP_SUMMARY
@@ -244,6 +319,7 @@ jobs:
         echo "- NO NoMount" >> $GITHUB_STEP_SUMMARY
         echo "- NO Compression patches" >> $GITHUB_STEP_SUMMARY
         echo "- NO Network patches" >> $GITHUB_STEP_SUMMARY
+        echo "- NO BBG" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Test Purpose" >> $GITHUB_STEP_SUMMARY
         echo "Flash this kernel and check if Risk Detector still shows 'Evil Kernel'" >> $GITHUB_STEP_SUMMARY
