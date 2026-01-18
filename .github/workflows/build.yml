@@ -231,6 +231,19 @@ jobs:
 
               echo "WildKSU ksud.c patched"
             fi
+
+            # Patch WildKSU Kbuild to guard KPROBES check against clean targets
+            # The check fires during 'make mrproper' when no config is loaded
+            KBUILD_FILE="$KERNEL_ROOT/Wild_KSU/kernel/Kbuild"
+            if [ -f "$KBUILD_FILE" ]; then
+              echo "Patching WildKSU Kbuild to guard KPROBES check..."
+
+              # Replace the unconditional $(error ...) with a guarded version
+              # Only check KPROBES when actually building (not cleaning)
+              sed -i 's/\$(error KSU requires Kprobes; enable it (defconfig))/$(if $(filter-out mrproper clean distclean,$(MAKECMDGOALS)),$(error KSU requires Kprobes; enable it (defconfig)))/' "$KBUILD_FILE"
+
+              echo "WildKSU Kbuild patched - KPROBES check now guarded"
+            fi
             ;;
           Next)
             if [[ -n "${{ inputs.ksu_commit }}" ]]; then
