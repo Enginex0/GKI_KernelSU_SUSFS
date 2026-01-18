@@ -229,7 +229,12 @@ jobs:
               # The original guarded call will be skipped when SUSFS enabled
               sed -i '/track_throne(true);/a\    ksu_avc_spoof_late_init();' "$KSUD_FILE"
 
-              echo "WildKSU ksud.c patched"
+              # Add ksu_handle_sys_newfstatat stub for SUSFS compatibility
+              # SUSFS patch calls this in fs/stat.c - WildKSU has ksu_handle_vfs_fstat but not this
+              if ! grep -q "ksu_handle_sys_newfstatat" "$KSUD_FILE"; then
+                awk '/void ksu_handle_vfs_fstat/{found=1} found && /^}/{print; print "void ksu_handle_sys_newfstatat(int fd, loff_t *kstat_size_ptr) { }"; found=0; next}1' "$KSUD_FILE" > "$KSUD_FILE.tmp" && mv "$KSUD_FILE.tmp" "$KSUD_FILE"
+              fi
+              echo "WildKSU ksud.c patched with AVC init and newfstatat stub"
             fi
 
             # Patch WildKSU Kbuild to guard KPROBES check against clean targets
