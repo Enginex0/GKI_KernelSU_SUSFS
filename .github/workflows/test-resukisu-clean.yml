@@ -192,6 +192,9 @@ jobs:
 
         curl -LSs "https://raw.githubusercontent.com/WildPlusKernel/KernelSU/wild/kernel/extras.c" -o extras.c
 
+        sed -i 's/#ifndef CONFIG_KSU_SUSFS//g' extras.c
+        sed -i 's/#endif \/\/ CONFIG_KSU_SUSFS//g' extras.c
+
         if ! grep -q "extras.o" Kbuild; then
           echo "kernelsu-objs += extras.o" >> Kbuild
         fi
