@@ -30,27 +30,19 @@ if ! grep -q "linux/vfs_dcache.h" "$TARGET"; then
     echo "  Added vfs_dcache.h include"
 fi
 
-# Use AWK to inject hook into show_map_vma inside the first "if (file) {" block
+# Use AWK to inject hook into show_map_vma AFTER the struct inode declaration
+# This avoids C90 "declaration after statement" errors
 # The hook filters maps entries for hidden paths
 awk '
 BEGIN {
     in_func = 0
     brace_depth = 0
     injected = 0
-    found_if_file = 0
-}
-
-# Detect show_map_vma function signature (static void on previous line or same line)
-/^show_map_vma\(/ || /^static void[[:space:]]*$/ {
-    if (/^static void[[:space:]]*$/) {
-        # Function signature may be on next line, mark for check
-        maybe_func = 1
-    }
+    in_if_file = 0
 }
 
 /^show_map_vma\(struct seq_file/ {
     in_func = 1
-    found_if_file = 0
 }
 
 # Track brace depth when inside function
@@ -68,9 +60,14 @@ in_func == 1 && /\}/ {
     }
 }
 
-# Find the first "if (file) {" inside show_map_vma and inject after it
-in_func == 1 && /^[[:space:]]*if \(file\) \{/ && found_if_file == 0 && injected == 0 {
-    found_if_file = 1
+# Detect entering if (file) block
+in_func == 1 && /^[[:space:]]*if \(file\) \{/ && in_if_file == 0 {
+    in_if_file = 1
+}
+
+# Find "struct inode *inode = file_inode" line and inject AFTER it
+# This ensures we inject after ALL declarations in the block (C90 compliant)
+in_func == 1 && in_if_file == 1 && /struct inode \*inode = file_inode/ && injected == 0 {
     print
     print "#ifdef CONFIG_FS_DCACHE_PREFETCH"
     print "\t\t{"
@@ -93,7 +90,7 @@ in_func == 1 && /^[[:space:]]*if \(file\) \{/ && found_if_file == 0 && injected 
 
 END {
     if (injected == 0) {
-        print "WARNING: Hook not injected - if (file) not found in show_map_vma" > "/dev/stderr"
+        print "WARNING: Hook not injected - struct inode line not found in show_map_vma" > "/dev/stderr"
     }
 }
 ' "$TARGET" > "${TARGET}.new"
