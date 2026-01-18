@@ -180,7 +180,7 @@ jobs:
       run: |
         cd "$KERNEL_ROOT/KernelSU/kernel"
 
-        curl -LSs "https://raw.githubusercontent.com/WildPlusKernel/KernelSU/wild/kernel/extras.c" -o extras.c
+        curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/extras.c" -o extras.c
 
         sed -i 's/#ifndef CONFIG_KSU_SUSFS//g' extras.c
         sed -i 's/#endif \/\/ CONFIG_KSU_SUSFS//g' extras.c
