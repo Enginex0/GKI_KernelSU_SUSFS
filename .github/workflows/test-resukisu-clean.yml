@@ -1,9 +1,5 @@
 name: Test ReSukiSU Clean Build
 
-# MINIMAL BUILD: ReSukiSU with ONLY CONFIG_KSU=y
-# Purpose: Test if kernel detection is from CONFIG_KSU alone
-# NO: SUSFS, KPM, NoMount, compression, network patches, BBG
-
 permissions:
   contents: write
   actions: write
@@ -42,26 +38,8 @@ jobs:
 
     - name: Display Build Info
       run: |
-        echo "========================================"
-        echo "  CLEAN ReSukiSU TEST BUILD"
-        echo "========================================"
-        echo "Android Version : ${{ inputs.android_version }}"
-        echo "Kernel Version  : ${{ inputs.kernel_version }}"
-        echo "Sub Level       : ${{ inputs.sub_level }}"
-        echo "OS Patch Level  : ${{ inputs.os_patch_level }}"
-        echo ""
-        echo "WHAT THIS BUILD INCLUDES:"
-        echo "  - ReSukiSU (builtin branch with AVC spoofing)"
-        echo "  - CONFIG_KSU=y"
-        echo "  - AVC spoofing (ported from WildKSU)"
-        echo ""
-        echo "WHAT THIS BUILD EXCLUDES:"
-        echo "  - NO KPM (causes boot issues)"
-        echo "  - NO SUSFS"
-        echo "  - NO NoMount patches"
-        echo ""
-        echo "PURPOSE: Test KSU+AVC without KPM/SUSFS"
-        echo "========================================"
+        echo "ReSukiSU Test Build: ${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}"
+        echo "Features: CONFIG_KSU + AVC spoofing | No KPM, No SUSFS"
 
     - name: Free Disk Space
       uses: endersonmenezes/free-disk-space@v3
@@ -159,61 +137,36 @@ jobs:
             sed -i '/#include <trace\/hooks\/blk.h>/a #include <trace\/hooks\/fs.h>' ./fs/namespace.c
         fi
 
-    - name: Add ReSukiSU (With AVC Spoofing)
+    - name: Add ReSukiSU
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        echo "=== Setting up ReSukiSU (builtin branch with AVC spoofing) ==="
-
-        # Clone from our fork which has AVC spoofing ported from WildKSU
         git clone https://github.com/Enginex0/ReSukiSU.git KernelSU
         cd KernelSU
-
-        # Checkout builtin branch (has AVC spoofing + CONFIG_KSU=y support)
         git fetch origin builtin
         git checkout FETCH_HEAD
 
-        echo "ReSukiSU builtin branch with AVC spoofing checked out"
-
-        # Setup symlink in kernel drivers
         cd $KERNEL_ROOT
         DRIVER_DIR="$KERNEL_ROOT/common/drivers"
-
         ln -sf "$KERNEL_ROOT/KernelSU/kernel" "$DRIVER_DIR/kernelsu"
 
-        # Add to Makefile
         if ! grep -q "kernelsu" "$DRIVER_DIR/Makefile"; then
           echo "obj-\$(CONFIG_KSU) += kernelsu/" >> "$DRIVER_DIR/Makefile"
         fi
 
-        # Add to Kconfig
         if ! grep -q "kernelsu" "$DRIVER_DIR/Kconfig"; then
           sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' "$DRIVER_DIR/Kconfig"
         fi
 
-        echo "ReSukiSU integration complete (NO SUSFS patches applied)"
-
-    - name: Configure Kernel (KSU + AVC)
+    - name: Configure Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        echo "=== Configuring kernel with CONFIG_KSU + AVC (NO KPM) ==="
-
         cat >> "${{ env.DEFCONFIG }}" << 'EOF'
-        # KernelSU with AVC spoofing (no KPM, no SUSFS)
         CONFIG_KSU=y
         # CONFIG_KPM is not set
         # CONFIG_KSU_SUSFS is not set
         # CONFIG_KSU_DEBUG is not set
         EOF
 
-        # Verify config
-        if grep -q "CONFIG_KSU=y" "${{ env.DEFCONFIG }}"; then
-          echo "SUCCESS: CONFIG_KSU=y added to defconfig"
-        else
-          echo "FAILED: CONFIG_KSU=y not found"
-          exit 1
-        fi
-
-        # Remove check_defconfig
         if [[ "${{ inputs.kernel_version }}" == "6.12" ]]; then
           sed -i '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' common/BUILD.bazel
         else
@@ -274,7 +227,6 @@ jobs:
         if [ -f "build/build.sh" ]; then
           LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
-          # Use both --config=fast and --config=stamp for proper version embedding
           tools/bazel build --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist || exit 1
         fi
 
@@ -299,23 +251,7 @@ jobs:
 
     - name: Build Summary
       run: |
-        echo "## Clean ReSukiSU Test Build Complete" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Build Configuration" >> $GITHUB_STEP_SUMMARY
-        echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
-        echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Android | ${{ inputs.android_version }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Kernel | ${{ inputs.kernel_version }}.${{ env.ACTUAL_SUBLEVEL }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| KSU Variant | ReSukiSU (builtin + AVC spoofing) |" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Features Included" >> $GITHUB_STEP_SUMMARY
-        echo "- CONFIG_KSU=y" >> $GITHUB_STEP_SUMMARY
-        echo "- AVC Spoofing (hides 'su' in SELinux audit logs)" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Features EXCLUDED" >> $GITHUB_STEP_SUMMARY
-        echo "- NO KPM (causes boot issues)" >> $GITHUB_STEP_SUMMARY
-        echo "- NO SUSFS" >> $GITHUB_STEP_SUMMARY
-        echo "- NO NoMount" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Test Purpose" >> $GITHUB_STEP_SUMMARY
-        echo "Test KSU+AVC spoofing without KPM/SUSFS" >> $GITHUB_STEP_SUMMARY
+        echo "## ReSukiSU Test Build" >> $GITHUB_STEP_SUMMARY
+        echo "- Kernel: ${{ inputs.kernel_version }}.${{ env.ACTUAL_SUBLEVEL }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Features: CONFIG_KSU + AVC spoofing" >> $GITHUB_STEP_SUMMARY
+        echo "- Excluded: KPM, SUSFS, NoMount" >> $GITHUB_STEP_SUMMARY
