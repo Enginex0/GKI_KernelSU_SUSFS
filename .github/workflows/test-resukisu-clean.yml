@@ -166,9 +166,52 @@ jobs:
         SUSFS_KERNEL_PATCH="$SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
         patch -p1 < "$SUSFS_KERNEL_PATCH" || true
 
-        if [ -f "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" ]; then
-          patch -p1 --fuzz=3 < "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" || true
+        # Unicode filter: use sed injection instead of patch (line numbers shift after 50 patch)
+        # Add include to fs/open.c if not present
+        if ! grep -q "CONFIG_KSU_SUSFS_UNICODE_FILTER" ./fs/open.c; then
+          sed -i '/#include "internal.h"/a\
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\
+#include <linux/susfs.h>\
+#endif' ./fs/open.c
         fi
+
+        # Add hook to do_faccessat in fs/open.c
+        sed -i '/^static int do_faccessat.*filename.*mode.*flag/,/^{/{
+          /^{/a\
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\
+	if (susfs_check_unicode_bypass(filename)) {\
+		return -ENOENT;\
+	}\
+#endif
+        }' ./fs/open.c
+
+        # Add hook to do_sys_openat2 in fs/open.c
+        sed -i '/^static long do_sys_openat2.*filename/,/struct filename \*tmp;/{
+          /struct filename \*tmp;/a\
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\
+	if (susfs_check_unicode_bypass(filename)) {\
+		return -ENOENT;\
+	}\
+#endif
+        }' ./fs/open.c
+
+        # Add include to fs/stat.c if not present
+        if ! grep -q "CONFIG_KSU_SUSFS_UNICODE_FILTER" ./fs/stat.c; then
+          sed -i '/#include "internal.h"/i\
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\
+#include <linux/susfs.h>\
+#endif' ./fs/stat.c
+        fi
+
+        # Add hook to vfs_fstatat in fs/stat.c
+        sed -i '/^int vfs_fstatat.*filename/,/^{/{
+          /^{/a\
+#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\
+	if (filename \&\& susfs_check_unicode_bypass(filename)) {\
+		return -ENOENT;\
+	}\
+#endif
+        }' ./fs/stat.c
 
         if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
           if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
