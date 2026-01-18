@@ -217,7 +217,19 @@ jobs:
               sed -i 's/#ifndef CONFIG_KSU_SUSFS/\/\/ SUSFS guard removed for coordination/g' "$EXTRAS_FILE"
               sed -i 's/#endif \/\/ CONFIG_KSU_SUSFS/\/\/ end SUSFS guard/g' "$EXTRAS_FILE"
 
-              echo "WildKSU AVC spoof coordination patched"
+              echo "WildKSU extras.c patched"
+            fi
+
+            # Patch WildKSU ksud.c to always call ksu_avc_spoof_late_init
+            KSUD_FILE="$KERNEL_ROOT/Wild_KSU/kernel/ksud.c"
+            if [ -f "$KSUD_FILE" ]; then
+              echo "Patching WildKSU ksud.c to enable AVC spoof with SUSFS..."
+
+              # Add unconditional call after track_throne(true)
+              # The original guarded call will be skipped when SUSFS enabled
+              sed -i '/track_throne(true);/a\    ksu_avc_spoof_late_init();' "$KSUD_FILE"
+
+              echo "WildKSU ksud.c patched"
             fi
             ;;
           Next)
