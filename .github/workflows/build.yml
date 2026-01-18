@@ -205,19 +205,13 @@ jobs:
               echo "Patching WildKSU extras.c for AVC spoof coordination..."
 
               # Add ksu_avc_spoof_active export after disable_spoof declaration
-              sed -i '/^static atomic_t disable_spoof/a\
-\
-// Exported for SUSFS coordination - when true, SUSFS defers AVC handling\
-bool ksu_avc_spoof_active = false;\
-EXPORT_SYMBOL(ksu_avc_spoof_active);' "$EXTRAS_FILE"
+              sed -i '/^static atomic_t disable_spoof/a\\n// Exported for SUSFS coordination - when true, SUSFS defers AVC handling\nbool ksu_avc_spoof_active = false;\nEXPORT_SYMBOL(ksu_avc_spoof_active);' "$EXTRAS_FILE"
 
               # Set ksu_avc_spoof_active = true in enable function
-              sed -i '/atomic_set(\&disable_spoof, 0);/a\
-	ksu_avc_spoof_active = true;' "$EXTRAS_FILE"
+              sed -i '/atomic_set(\&disable_spoof, 0);/a\	ksu_avc_spoof_active = true;' "$EXTRAS_FILE"
 
               # Set ksu_avc_spoof_active = false in disable function
-              sed -i '/atomic_set(\&disable_spoof, 1);/a\
-	ksu_avc_spoof_active = false;' "$EXTRAS_FILE"
+              sed -i '/atomic_set(\&disable_spoof, 1);/a\	ksu_avc_spoof_active = false;' "$EXTRAS_FILE"
 
               # Remove #ifndef CONFIG_KSU_SUSFS guards so AVC works with SUSFS
               sed -i 's/#ifndef CONFIG_KSU_SUSFS/\/\/ SUSFS guard removed for coordination/g' "$EXTRAS_FILE"
