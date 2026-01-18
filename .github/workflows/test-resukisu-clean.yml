@@ -51,18 +51,19 @@ jobs:
         echo "OS Patch Level  : ${{ inputs.os_patch_level }}"
         echo ""
         echo "WHAT THIS BUILD INCLUDES:"
-        echo "  - ReSukiSU (builtin branch)"
+        echo "  - ReSukiSU (builtin branch with AVC spoofing)"
         echo "  - CONFIG_KSU=y"
+        echo "  - CONFIG_KPM=y (Kernel Patch Modules)"
+        echo "  - AVC spoofing (ported from WildKSU)"
         echo ""
         echo "WHAT THIS BUILD EXCLUDES:"
         echo "  - NO SUSFS"
-        echo "  - NO KPM"
         echo "  - NO NoMount patches"
         echo "  - NO compression patches"
         echo "  - NO network patches"
         echo "  - NO BBG"
         echo ""
-        echo "PURPOSE: Test if detection is from CONFIG_KSU alone"
+        echo "PURPOSE: Test KSU+KPM+AVC without SUSFS"
         echo "========================================"
 
     - name: Free Disk Space
@@ -161,20 +162,20 @@ jobs:
             sed -i '/#include <trace\/hooks\/blk.h>/a #include <trace\/hooks\/fs.h>' ./fs/namespace.c
         fi
 
-    - name: Add ReSukiSU (Clean - No SUSFS)
+    - name: Add ReSukiSU (With AVC Spoofing)
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        echo "=== Setting up ReSukiSU (builtin branch, NO SUSFS) ==="
+        echo "=== Setting up ReSukiSU (builtin branch with AVC spoofing) ==="
 
-        # Clone ReSukiSU
-        git clone https://github.com/ReSukiSU/ReSukiSU.git KernelSU
+        # Clone from our fork which has AVC spoofing ported from WildKSU
+        git clone https://github.com/Enginex0/ReSukiSU.git KernelSU
         cd KernelSU
 
-        # Checkout builtin branch (required for CONFIG_KSU=y builds)
+        # Checkout builtin branch (has AVC spoofing + CONFIG_KSU=y support)
         git fetch origin builtin
         git checkout FETCH_HEAD
 
-        echo "ReSukiSU builtin branch checked out"
+        echo "ReSukiSU builtin branch with AVC spoofing checked out"
 
         # Setup symlink in kernel drivers
         cd $KERNEL_ROOT
@@ -194,16 +195,16 @@ jobs:
 
         echo "ReSukiSU integration complete (NO SUSFS patches applied)"
 
-    - name: Configure Kernel (Minimal)
+    - name: Configure Kernel (KSU + KPM)
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        echo "=== Configuring kernel with ONLY CONFIG_KSU ==="
+        echo "=== Configuring kernel with CONFIG_KSU + CONFIG_KPM ==="
 
         cat >> "${{ env.DEFCONFIG }}" << 'EOF'
-        # KernelSU - MINIMAL (no SUSFS, no KPM)
+        # KernelSU with KPM (no SUSFS)
         CONFIG_KSU=y
+        CONFIG_KPM=y
         # CONFIG_KSU_SUSFS is not set
-        # CONFIG_KPM is not set
         # CONFIG_KSU_DEBUG is not set
         EOF
 
@@ -308,21 +309,22 @@ jobs:
         echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
         echo "| Android | ${{ inputs.android_version }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Kernel | ${{ inputs.kernel_version }}.${{ env.ACTUAL_SUBLEVEL }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| KSU Variant | ReSukiSU (builtin) |" >> $GITHUB_STEP_SUMMARY
+        echo "| KSU Variant | ReSukiSU (builtin + AVC spoofing) |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Features Included" >> $GITHUB_STEP_SUMMARY
         echo "- CONFIG_KSU=y" >> $GITHUB_STEP_SUMMARY
+        echo "- CONFIG_KPM=y (Kernel Patch Modules)" >> $GITHUB_STEP_SUMMARY
+        echo "- AVC Spoofing (hides 'su' in SELinux audit logs)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Features EXCLUDED" >> $GITHUB_STEP_SUMMARY
         echo "- NO SUSFS" >> $GITHUB_STEP_SUMMARY
-        echo "- NO KPM" >> $GITHUB_STEP_SUMMARY
         echo "- NO NoMount" >> $GITHUB_STEP_SUMMARY
         echo "- NO Compression patches" >> $GITHUB_STEP_SUMMARY
         echo "- NO Network patches" >> $GITHUB_STEP_SUMMARY
         echo "- NO BBG" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Test Purpose" >> $GITHUB_STEP_SUMMARY
-        echo "Flash this kernel and check if Risk Detector still shows 'Evil Kernel'" >> $GITHUB_STEP_SUMMARY
+        echo "Test if KSU+KPM without SUSFS passes detection" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "- If **still detected**: CONFIG_KSU=y in /proc/config.gz is the issue" >> $GITHUB_STEP_SUMMARY
-        echo "- If **NOT detected**: SUSFS/KPM configs were the culprit" >> $GITHUB_STEP_SUMMARY
+        echo "- If **still detected**: KPM config might be in detection database" >> $GITHUB_STEP_SUMMARY
+        echo "- If **NOT detected**: SUSFS configs are likely the culprit" >> $GITHUB_STEP_SUMMARY
