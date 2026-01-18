@@ -31,41 +31,49 @@ if ! grep -q "linux/vfs_dcache.h" "$TARGET"; then
 fi
 
 # Use AWK to inject hooks into all three functions
-# Matches function signature pattern and injects after opening brace
+# Must inject AFTER all variable declarations to be C90 compliant
+# The functions have: struct proc_mounts *p, struct mount *r, ..., int err;
+# We inject AFTER "int err;" which is the last declaration
 awk '
 BEGIN {
-    inject_next = 0
+    in_target_func = 0
     injected_count = 0
+    looking_for_err = 0
 }
 
-# Detect function signatures and set flag to inject on next brace
+# Detect entering target functions
 /^static int show_vfsmnt\(struct seq_file/ ||
 /^static int show_mountinfo\(struct seq_file/ ||
 /^static int show_vfsstat\(struct seq_file/ {
-    inject_next = 1
+    in_target_func = 1
+    looking_for_err = 1
 }
 
-# When we see opening brace after function signature, inject the hook
-inject_next == 1 && /^\{$/ {
+# Find "int err;" line - this is the last declaration before code
+in_target_func == 1 && looking_for_err == 1 && /^[[:space:]]*int err;/ {
     print $0
     print "#ifdef CONFIG_FS_DCACHE_PREFETCH"
     print "\t{"
     print "\t\tstruct mount *__nm_r = real_mount(mnt);"
-    print "\t\tif (vfs_dcache_uid_blocked(current_uid().val) &&"
-    print "\t\t    vfs_dcache_is_mount_hidden(__nm_r->mnt_id))"
+    print "\t\tif (vfs_dcache_is_mount_hidden(__nm_r->mnt_id))"
     print "\t\t\treturn 0;"
     print "\t}"
     print "#endif"
-    inject_next = 0
+    looking_for_err = 0
     injected_count++
     next
+}
+
+# Reset when we exit a function (closing brace at column 0)
+in_target_func == 1 && /^}$/ {
+    in_target_func = 0
 }
 
 { print }
 
 END {
     if (injected_count < 3) {
-        print "WARNING: Only injected " injected_count " hooks" > "/dev/stderr"
+        print "WARNING: Only injected " injected_count " hooks (expected 3)" > "/dev/stderr"
     }
 }
 ' "$TARGET" > "${TARGET}.new"
