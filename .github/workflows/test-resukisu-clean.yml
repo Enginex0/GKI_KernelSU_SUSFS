@@ -167,51 +167,38 @@ jobs:
         patch -p1 < "$SUSFS_KERNEL_PATCH" || true
 
         # Unicode filter: use sed injection instead of patch (line numbers shift after 50 patch)
-        # Add include to fs/open.c if not present
+        cat > /tmp/inject_unicode_filter.sh << 'SCRIPT'
+        #!/bin/bash
+        cd "$1"
+
+        # Add include to fs/open.c
         if ! grep -q "CONFIG_KSU_SUSFS_UNICODE_FILTER" ./fs/open.c; then
-          sed -i '/#include "internal.h"/a\
-#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\
-#include <linux/susfs.h>\
-#endif' ./fs/open.c
+          sed -i '/#include "internal.h"/a #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\n#include <linux\/susfs.h>\n#endif' ./fs/open.c
         fi
 
-        # Add hook to do_faccessat in fs/open.c
-        sed -i '/^static int do_faccessat.*filename.*mode.*flag/,/^{/{
-          /^{/a\
-#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\
-	if (susfs_check_unicode_bypass(filename)) {\
-		return -ENOENT;\
-	}\
-#endif
-        }' ./fs/open.c
+        # Add hook after do_faccessat opening brace
+        if ! grep -q "susfs_check_unicode_bypass" ./fs/open.c; then
+          sed -i '/^static int do_faccessat/,/^{/ { /^{/a #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\n\tif (susfs_check_unicode_bypass(filename)) { return -ENOENT; }\n#endif
+          }' ./fs/open.c
 
-        # Add hook to do_sys_openat2 in fs/open.c
-        sed -i '/^static long do_sys_openat2.*filename/,/struct filename \*tmp;/{
-          /struct filename \*tmp;/a\
-#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\
-	if (susfs_check_unicode_bypass(filename)) {\
-		return -ENOENT;\
-	}\
-#endif
-        }' ./fs/open.c
+          # Add hook after do_sys_openat2 variable declarations
+          sed -i '/^static long do_sys_openat2/,/struct filename \*tmp;/ { /struct filename \*tmp;/a #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\n\tif (susfs_check_unicode_bypass(filename)) { return -ENOENT; }\n#endif
+          }' ./fs/open.c
+        fi
 
-        # Add include to fs/stat.c if not present
+        # Add include to fs/stat.c
         if ! grep -q "CONFIG_KSU_SUSFS_UNICODE_FILTER" ./fs/stat.c; then
-          sed -i '/#include "internal.h"/i\
-#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\
-#include <linux/susfs.h>\
-#endif' ./fs/stat.c
+          sed -i '/#include "internal.h"/i #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\n#include <linux\/susfs.h>\n#endif' ./fs/stat.c
         fi
 
-        # Add hook to vfs_fstatat in fs/stat.c
-        sed -i '/^int vfs_fstatat.*filename/,/^{/{
-          /^{/a\
-#ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\
-	if (filename \&\& susfs_check_unicode_bypass(filename)) {\
-		return -ENOENT;\
-	}\
-#endif
-        }' ./fs/stat.c
+        # Add hook to vfs_fstatat
+        if ! grep -q "susfs_check_unicode_bypass" ./fs/stat.c; then
+          sed -i '/^int vfs_fstatat/,/^{/ { /^{/a #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\n\tif (filename \&\& susfs_check_unicode_bypass(filename)) { return -ENOENT; }\n#endif
+          }' ./fs/stat.c
+        fi
+        SCRIPT
+        chmod +x /tmp/inject_unicode_filter.sh
+        bash /tmp/inject_unicode_filter.sh "$KERNEL_ROOT/common"
 
         if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
           if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
