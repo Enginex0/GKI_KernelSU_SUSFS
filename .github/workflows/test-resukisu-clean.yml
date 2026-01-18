@@ -148,7 +148,7 @@ jobs:
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
-        git clone https://github.com/Enginex0/susfs4ksu.git -b "$SUSFS_BRANCH" "$SUSFS4KSU"
+        git clone https://github.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH" "$SUSFS4KSU"
 
         cd "$KERNEL_ROOT/KernelSU"
         SUSFS_PATCH="$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_resukisu.patch"
