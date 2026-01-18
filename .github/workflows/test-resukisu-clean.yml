@@ -1,4 +1,4 @@
-name: Test ReSukiSU SUSFS (No AVC)
+name: Test ReSukiSU Custom Build
 
 permissions:
   contents: write
@@ -137,7 +137,7 @@ jobs:
     - name: Add ReSukiSU (builtin branch - SUSFS already integrated)
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        git clone https://github.com/ReSukiSU/ReSukiSU.git KernelSU
+        git clone https://github.com/Enginex0/ReSukiSU.git KernelSU
         cd KernelSU
         git checkout builtin
 
@@ -157,7 +157,7 @@ jobs:
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
-        git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH" "$SUSFS4KSU"
+        git clone https://github.com/Enginex0/susfs4ksu.git -b "$SUSFS_BRANCH" "$SUSFS4KSU"
 
         cd "$KERNEL_ROOT/common"
         cp "$SUSFS4KSU/kernel_patches/fs/"* ./fs/
@@ -176,6 +176,17 @@ jobs:
           fi
         fi
 
+    - name: Verify AVC Spoofing Support
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        if [ -f "KernelSU/kernel/extras.c" ]; then
+          echo "AVC spoofing (extras.c) present in custom ReSukiSU fork"
+          grep -q "ksu_avc_spoof_active" KernelSU/kernel/extras.c && echo "ksu_avc_spoof_active export confirmed"
+        else
+          echo "ERROR: extras.c not found in custom ReSukiSU fork"
+          exit 1
+        fi
+
     - name: Configure Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
@@ -184,6 +195,7 @@ jobs:
         CONFIG_KSU_SUSFS=y
         CONFIG_KSU_SUSFS_UNICODE_FILTER=y
         CONFIG_KSU_MANUAL_SU=y
+        CONFIG_KSU_SUSFS_AVC_DEFER_COMPAT=y
         EOF
 
         if [[ "${{ inputs.kernel_version }}" == "6.12" ]]; then
@@ -266,12 +278,12 @@ jobs:
 
     - name: Build Summary
       run: |
-        echo "## ReSukiSU + SUSFS (No AVC) - Test B" >> $GITHUB_STEP_SUMMARY
+        echo "## ReSukiSU Custom Build" >> $GITHUB_STEP_SUMMARY
         echo "| Config | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
         echo "| Kernel | ${{ inputs.kernel_version }}.${{ env.ACTUAL_SUBLEVEL }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Android | ${{ inputs.android_version }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| KSU | ReSukiSU (builtin) |" >> $GITHUB_STEP_SUMMARY
-        echo "| SUSFS | Enabled (GitLab upstream) |" >> $GITHUB_STEP_SUMMARY
-        echo "| AVC Spoofing | DISABLED (isolation test) |" >> $GITHUB_STEP_SUMMARY
+        echo "| KSU | ReSukiSU (Enginex0/builtin) |" >> $GITHUB_STEP_SUMMARY
+        echo "| SUSFS | Enginex0/susfs4ksu (AVC deferral) |" >> $GITHUB_STEP_SUMMARY
+        echo "| AVC Spoofing | Enabled (extras.c) |" >> $GITHUB_STEP_SUMMARY
         echo "| Manual SU | Enabled |" >> $GITHUB_STEP_SUMMARY
