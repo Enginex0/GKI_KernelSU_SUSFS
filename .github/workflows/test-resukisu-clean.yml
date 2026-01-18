@@ -137,21 +137,11 @@ jobs:
     - name: Add ReSukiSU
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        git clone https://github.com/ReSukiSU/ReSukiSU.git KernelSU
-        cd KernelSU
-        git fetch origin builtin
-        git checkout FETCH_HEAD
-
-        cd $KERNEL_ROOT
-        DRIVER_DIR="$KERNEL_ROOT/common/drivers"
-        ln -sf "$KERNEL_ROOT/KernelSU/kernel" "$DRIVER_DIR/kernelsu"
-
-        if ! grep -q "kernelsu" "$DRIVER_DIR/Makefile"; then
-          echo "obj-\$(CONFIG_KSU) += kernelsu/" >> "$DRIVER_DIR/Makefile"
-        fi
-
-        if ! grep -q "kernelsu" "$DRIVER_DIR/Kconfig"; then
-          sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' "$DRIVER_DIR/Kconfig"
+        curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -
+        cd "$KERNEL_ROOT/KernelSU"
+        LATEST_TAG=$(git describe --abbrev=0 --tags 2>/dev/null || echo "main")
+        if [[ "$LATEST_TAG" != "main" ]]; then
+          git checkout "$LATEST_TAG"
         fi
 
     - name: Clone and Apply SUSFS
