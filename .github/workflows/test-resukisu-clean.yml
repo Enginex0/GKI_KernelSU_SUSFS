@@ -137,7 +137,7 @@ jobs:
     - name: Add ReSukiSU
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        git clone https://github.com/Enginex0/ReSukiSU.git KernelSU
+        git clone https://github.com/ReSukiSU/ReSukiSU.git KernelSU
         cd KernelSU
         git fetch origin builtin
         git checkout FETCH_HEAD
@@ -183,6 +183,31 @@ jobs:
           if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
             sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
           fi
+        fi
+
+    - name: Add AVC Spoofing
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        cd "$KERNEL_ROOT/KernelSU/kernel"
+
+        curl -LSs "https://raw.githubusercontent.com/WildPlusKernel/KernelSU/wild/kernel/extras.c" -o extras.c
+
+        if ! grep -q "extras.o" Kbuild; then
+          echo "kernelsu-objs += extras.o" >> Kbuild
+        fi
+
+        if ! grep -q "KSU_FEATURE_AVC_SPOOF" feature.h; then
+          sed -i '/KSU_FEATURE_MAX/i\    KSU_FEATURE_AVC_SPOOF = 10003,' feature.h
+        fi
+
+        if ! grep -q "ksu_avc_spoof_init" ksu.c; then
+          sed -i '/^#include/a extern void ksu_avc_spoof_init(void);' ksu.c
+          sed -i '/ksu_feature_init/a\    ksu_avc_spoof_init();' ksu.c
+        fi
+
+        if ! grep -q "ksu_avc_spoof_late_init" ksud.c; then
+          sed -i '/^#include/a extern void ksu_avc_spoof_late_init(void);' ksud.c
+          sed -i '/ksu_boot_completed = true/a\    ksu_avc_spoof_late_init();' ksud.c
         fi
 
     - name: Configure Kernel
