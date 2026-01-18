@@ -53,17 +53,14 @@ jobs:
         echo "WHAT THIS BUILD INCLUDES:"
         echo "  - ReSukiSU (builtin branch with AVC spoofing)"
         echo "  - CONFIG_KSU=y"
-        echo "  - CONFIG_KPM=y (Kernel Patch Modules)"
         echo "  - AVC spoofing (ported from WildKSU)"
         echo ""
         echo "WHAT THIS BUILD EXCLUDES:"
+        echo "  - NO KPM (causes boot issues)"
         echo "  - NO SUSFS"
         echo "  - NO NoMount patches"
-        echo "  - NO compression patches"
-        echo "  - NO network patches"
-        echo "  - NO BBG"
         echo ""
-        echo "PURPOSE: Test KSU+KPM+AVC without SUSFS"
+        echo "PURPOSE: Test KSU+AVC without KPM/SUSFS"
         echo "========================================"
 
     - name: Free Disk Space
@@ -195,15 +192,15 @@ jobs:
 
         echo "ReSukiSU integration complete (NO SUSFS patches applied)"
 
-    - name: Configure Kernel (KSU + KPM)
+    - name: Configure Kernel (KSU + AVC)
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        echo "=== Configuring kernel with CONFIG_KSU + CONFIG_KPM ==="
+        echo "=== Configuring kernel with CONFIG_KSU + AVC (NO KPM) ==="
 
         cat >> "${{ env.DEFCONFIG }}" << 'EOF'
-        # KernelSU with KPM (no SUSFS)
+        # KernelSU with AVC spoofing (no KPM, no SUSFS)
         CONFIG_KSU=y
-        CONFIG_KPM=y
+        # CONFIG_KPM is not set
         # CONFIG_KSU_SUSFS is not set
         # CONFIG_KSU_DEBUG is not set
         EOF
@@ -313,18 +310,12 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Features Included" >> $GITHUB_STEP_SUMMARY
         echo "- CONFIG_KSU=y" >> $GITHUB_STEP_SUMMARY
-        echo "- CONFIG_KPM=y (Kernel Patch Modules)" >> $GITHUB_STEP_SUMMARY
         echo "- AVC Spoofing (hides 'su' in SELinux audit logs)" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Features EXCLUDED" >> $GITHUB_STEP_SUMMARY
+        echo "- NO KPM (causes boot issues)" >> $GITHUB_STEP_SUMMARY
         echo "- NO SUSFS" >> $GITHUB_STEP_SUMMARY
         echo "- NO NoMount" >> $GITHUB_STEP_SUMMARY
-        echo "- NO Compression patches" >> $GITHUB_STEP_SUMMARY
-        echo "- NO Network patches" >> $GITHUB_STEP_SUMMARY
-        echo "- NO BBG" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Test Purpose" >> $GITHUB_STEP_SUMMARY
-        echo "Test if KSU+KPM without SUSFS passes detection" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "- If **still detected**: KPM config might be in detection database" >> $GITHUB_STEP_SUMMARY
-        echo "- If **NOT detected**: SUSFS configs are likely the culprit" >> $GITHUB_STEP_SUMMARY
+        echo "Test KSU+AVC spoofing without KPM/SUSFS" >> $GITHUB_STEP_SUMMARY
