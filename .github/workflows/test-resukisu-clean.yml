@@ -1,4 +1,4 @@
-name: Test ReSukiSU SUSFS Build
+name: Test ReSukiSU SUSFS (No AVC)
 
 permissions:
   contents: write
@@ -134,29 +134,30 @@ jobs:
             sed -i '/#include <trace\/hooks\/blk.h>/a #include <trace\/hooks\/fs.h>' ./fs/namespace.c
         fi
 
-    - name: Add ReSukiSU
+    - name: Add ReSukiSU (builtin branch - SUSFS already integrated)
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -
-        cd "$KERNEL_ROOT/KernelSU"
-        LATEST_TAG=$(git describe --abbrev=0 --tags 2>/dev/null || echo "main")
-        if [[ "$LATEST_TAG" != "main" ]]; then
-          git checkout "$LATEST_TAG"
+        git clone https://github.com/ReSukiSU/ReSukiSU.git KernelSU
+        cd KernelSU
+        git checkout builtin
+
+        cd $KERNEL_ROOT
+        DRIVER_DIR="$KERNEL_ROOT/common/drivers"
+        ln -sf "$KERNEL_ROOT/KernelSU/kernel" "$DRIVER_DIR/kernelsu"
+
+        if ! grep -q "kernelsu" "$DRIVER_DIR/Makefile"; then
+          echo "obj-\$(CONFIG_KSU) += kernelsu/" >> "$DRIVER_DIR/Makefile"
         fi
 
-    - name: Clone and Apply SUSFS
+        if ! grep -q "kernelsu" "$DRIVER_DIR/Kconfig"; then
+          sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' "$DRIVER_DIR/Kconfig"
+        fi
+
+    - name: Apply SUSFS Kernel Patches (kernel-side only)
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
         git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH" "$SUSFS4KSU"
-
-        cd "$KERNEL_ROOT/KernelSU"
-        SUSFS_PATCH="$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_resukisu.patch"
-        if [ ! -f "$SUSFS_PATCH" ]; then
-          echo "ERROR: ReSukiSU SUSFS patch not found: $SUSFS_PATCH"
-          exit 1
-        fi
-        patch -p1 --fuzz=3 < "$SUSFS_PATCH"
 
         cd "$KERNEL_ROOT/common"
         cp "$SUSFS4KSU/kernel_patches/fs/"* ./fs/
@@ -173,34 +174,6 @@ jobs:
           if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
             sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
           fi
-        fi
-
-    - name: Add AVC Spoofing
-      working-directory: ${{ env.KERNEL_ROOT }}
-      run: |
-        cd "$KERNEL_ROOT/KernelSU/kernel"
-
-        curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/extras.c" -o extras.c
-
-        sed -i 's/#ifndef CONFIG_KSU_SUSFS//g' extras.c
-        sed -i 's/#endif \/\/ CONFIG_KSU_SUSFS//g' extras.c
-
-        if ! grep -q "extras.o" Kbuild; then
-          echo "kernelsu-objs += extras.o" >> Kbuild
-        fi
-
-        if ! grep -q "KSU_FEATURE_AVC_SPOOF" feature.h; then
-          sed -i '/KSU_FEATURE_MAX/i\    KSU_FEATURE_AVC_SPOOF = 10003,' feature.h
-        fi
-
-        if ! grep -q "ksu_avc_spoof_init" ksu.c; then
-          sed -i '/^#include/a extern void ksu_avc_spoof_init(void);' ksu.c
-          sed -i '/ksu_feature_init/a\    ksu_avc_spoof_init();' ksu.c
-        fi
-
-        if ! grep -q "ksu_avc_spoof_late_init" ksud.c; then
-          sed -i '/^#include/a extern void ksu_avc_spoof_late_init(void);' ksud.c
-          sed -i '/ksu_boot_completed = true/a\    ksu_avc_spoof_late_init();' ksud.c
         fi
 
     - name: Configure Kernel
@@ -293,12 +266,12 @@ jobs:
 
     - name: Build Summary
       run: |
-        echo "## ReSukiSU + SUSFS Build" >> $GITHUB_STEP_SUMMARY
+        echo "## ReSukiSU + SUSFS (No AVC) - Test B" >> $GITHUB_STEP_SUMMARY
         echo "| Config | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
         echo "| Kernel | ${{ inputs.kernel_version }}.${{ env.ACTUAL_SUBLEVEL }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Android | ${{ inputs.android_version }} |" >> $GITHUB_STEP_SUMMARY
         echo "| KSU | ReSukiSU (builtin) |" >> $GITHUB_STEP_SUMMARY
-        echo "| SUSFS | Enabled |" >> $GITHUB_STEP_SUMMARY
-        echo "| AVC Spoofing | Enabled |" >> $GITHUB_STEP_SUMMARY
+        echo "| SUSFS | Enabled (GitLab upstream) |" >> $GITHUB_STEP_SUMMARY
+        echo "| AVC Spoofing | DISABLED (isolation test) |" >> $GITHUB_STEP_SUMMARY
         echo "| Manual SU | Enabled |" >> $GITHUB_STEP_SUMMARY
