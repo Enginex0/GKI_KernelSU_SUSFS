@@ -1,0 +1,252 @@
+name: Test ReSukiSU Clean Build
+
+# This workflow builds ReSukiSU WITHOUT SUSFS, KPM, or NoMount
+# Purpose: Test if kernel detection is caused by CONFIG_KSU alone
+# or by SUSFS/KPM configs
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      android_version:
+        description: "Android Version"
+        type: choice
+        options: [android12, android13, android14, android15]
+        default: android12
+      kernel_version:
+        description: "Kernel Version"
+        type: choice
+        options: ["5.10", "5.15", "6.1", "6.6"]
+        default: "5.10"
+      sub_level:
+        description: "Sub Level"
+        type: string
+        default: "209"
+      os_patch_level:
+        description: "OS Patch Level (YYYY-MM)"
+        type: string
+        default: "2024-05"
+      use_stock_version:
+        description: "Use stock kernel version string"
+        type: boolean
+        default: true
+
+env:
+  KERNEL_ROOT: ${{ github.workspace }}/kernel_root
+  ANYKERNEL3: ${{ github.workspace }}/AnyKernel3
+
+jobs:
+  build-clean:
+    name: "Clean ReSukiSU ${{ inputs.kernel_version }}.${{ inputs.sub_level }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Display Build Info
+      run: |
+        echo "========================================"
+        echo "  CLEAN ReSukiSU TEST BUILD"
+        echo "========================================"
+        echo "Android Version : ${{ inputs.android_version }}"
+        echo "Kernel Version  : ${{ inputs.kernel_version }}"
+        echo "Sub Level       : ${{ inputs.sub_level }}"
+        echo "OS Patch Level  : ${{ inputs.os_patch_level }}"
+        echo ""
+        echo "WHAT THIS BUILD INCLUDES:"
+        echo "  - ReSukiSU (builtin branch)"
+        echo "  - CONFIG_KSU=y"
+        echo ""
+        echo "WHAT THIS BUILD EXCLUDES:"
+        echo "  - NO SUSFS (CONFIG_KSU_SUSFS=n)"
+        echo "  - NO KPM (CONFIG_KPM=n)"
+        echo "  - NO NoMount patches"
+        echo "  - NO compression patches"
+        echo "  - NO network patches"
+        echo ""
+        echo "PURPOSE: Test if detection is from CONFIG_KSU alone"
+        echo "========================================"
+
+    - name: Setup Build Environment
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential ccache curl flex \
+          g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev \
+          lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libncurses5 \
+          libncurses5-dev libsdl1.2-dev libssl-dev libwxgtk3.2-dev libxml2 \
+          libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc \
+          zip zlib1g-dev python3 python-is-python3 jq cpio kmod
+
+    - name: Clone GKI Kernel Source
+      run: |
+        mkdir -p $KERNEL_ROOT
+        cd $KERNEL_ROOT
+
+        FORMATTED_BRANCH="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.os_patch_level }}"
+        echo "Cloning branch: $FORMATTED_BRANCH"
+
+        repo init -u https://android.googlesource.com/kernel/manifest -b common-${FORMATTED_BRANCH} --depth=1
+        repo sync -c -j$(nproc) --no-tags --no-clone-bundle
+
+    - name: Add ReSukiSU (Clean - No SUSFS)
+      run: |
+        cd $KERNEL_ROOT
+
+        echo "=== Setting up ReSukiSU (builtin branch, NO SUSFS) ==="
+
+        # Clone ReSukiSU
+        git clone https://github.com/ReSukiSU/ReSukiSU.git KernelSU
+        cd KernelSU
+
+        # Checkout builtin branch (required for CONFIG_KSU=y builds)
+        git fetch origin builtin
+        git checkout FETCH_HEAD
+
+        echo "ReSukiSU builtin branch checked out"
+
+        # Setup symlink in kernel drivers
+        cd $KERNEL_ROOT
+        DRIVER_DIR="$KERNEL_ROOT/common/drivers"
+
+        ln -sf "$KERNEL_ROOT/KernelSU/kernel" "$DRIVER_DIR/kernelsu"
+
+        # Add to Makefile
+        if ! grep -q "kernelsu" "$DRIVER_DIR/Makefile"; then
+          echo "obj-\$(CONFIG_KSU) += kernelsu/" >> "$DRIVER_DIR/Makefile"
+        fi
+
+        # Add to Kconfig
+        if ! grep -q "kernelsu" "$DRIVER_DIR/Kconfig"; then
+          sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' "$DRIVER_DIR/Kconfig"
+        fi
+
+        echo "ReSukiSU integration complete (NO SUSFS patches applied)"
+
+    - name: Configure Kernel
+      run: |
+        cd $KERNEL_ROOT/common
+
+        echo "=== Enabling only CONFIG_KSU ==="
+
+        # Just enable KSU - nothing else
+        echo "CONFIG_KSU=y" >> arch/arm64/configs/gki_defconfig
+
+        # Explicitly disable optional features
+        echo "# CONFIG_KPM is not set" >> arch/arm64/configs/gki_defconfig
+        echo "# CONFIG_KSU_DEBUG is not set" >> arch/arm64/configs/gki_defconfig
+
+        echo "Kernel configured with minimal KSU (no SUSFS, no KPM)"
+
+    - name: Set Stock Build Identity
+      if: ${{ inputs.use_stock_version }}
+      working-directory: ${{ env.KERNEL_ROOT }}/common
+      run: |
+        echo "=== Setting Stock Build Identity ==="
+
+        STOCK_BUILD_USER="build-user"
+        STOCK_BUILD_HOST="build-host"
+
+        PATCH_YEAR=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f1)
+        PATCH_MONTH=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f2)
+        STOCK_DATE="${PATCH_YEAR}-${PATCH_MONTH}-15 12:00:00 UTC"
+        STOCK_TIMESTAMP=$(date -d "$STOCK_DATE" "+%a %b %d %H:%M:%S UTC %Y" 2>/dev/null || date -u "+%a %b %d %H:%M:%S UTC %Y")
+
+        echo "Stock timestamp: $STOCK_TIMESTAMP"
+
+        # Export KBUILD variables
+        echo "KBUILD_BUILD_TIMESTAMP=$STOCK_TIMESTAMP" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_USER=$STOCK_BUILD_USER" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_HOST=$STOCK_BUILD_HOST" >> $GITHUB_ENV
+
+    - name: Clean Build Flags
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        # Remove -dirty flag
+        if [ -f "build/build.sh" ]; then
+          sed -i 's/-dirty//' ./common/scripts/setlocalversion
+        else
+          sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl 2>/dev/null || true
+          sed -i 's/-dirty//' ./common/scripts/setlocalversion
+        fi
+
+    - name: Build Kernel
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        set -ex
+
+        echo "=== Building Clean ReSukiSU Kernel ==="
+
+        if [ -f "build/build.sh" ]; then
+          # Legacy build system
+          LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
+        else
+          # Kleaf/Bazel build system - use stamp for version embedding
+          tools/bazel build --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist || exit 1
+        fi
+
+        echo "Build complete!"
+
+    - name: Prepare AnyKernel3 Zip
+      run: |
+        git clone https://github.com/WildKernels/AnyKernel3.git -b gki $ANYKERNEL3
+
+        # Find and copy kernel image
+        if [ -f "$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" ]; then
+          cp "$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" "$ANYKERNEL3/Image"
+        elif [ -f "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image" ]; then
+          cp "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image" "$ANYKERNEL3/Image"
+        else
+          echo "Error: Image file not found"
+          find $KERNEL_ROOT -name "Image" -type f 2>/dev/null || true
+          exit 1
+        fi
+
+    - name: Create Flashable Zip
+      run: |
+        cd $ANYKERNEL3
+
+        ZIP_NAME="${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.android_version }}-${{ inputs.os_patch_level }}-ReSukiSU-CLEAN-TEST.zip"
+
+        zip -r9 "../$ZIP_NAME" * -x '*.git*'
+
+        echo "Created: $ZIP_NAME"
+        echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ZIP_NAME }}
+        path: ${{ env.ZIP_NAME }}
+        retention-days: 7
+
+    - name: Build Summary
+      run: |
+        echo "## Clean ReSukiSU Test Build Complete" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Build Configuration" >> $GITHUB_STEP_SUMMARY
+        echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Android | ${{ inputs.android_version }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Kernel | ${{ inputs.kernel_version }}.${{ inputs.sub_level }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| KSU Variant | ReSukiSU (builtin) |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Features Included" >> $GITHUB_STEP_SUMMARY
+        echo "- CONFIG_KSU=y" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Features EXCLUDED" >> $GITHUB_STEP_SUMMARY
+        echo "- NO SUSFS" >> $GITHUB_STEP_SUMMARY
+        echo "- NO KPM" >> $GITHUB_STEP_SUMMARY
+        echo "- NO NoMount" >> $GITHUB_STEP_SUMMARY
+        echo "- NO Compression patches" >> $GITHUB_STEP_SUMMARY
+        echo "- NO Network patches" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Test Purpose" >> $GITHUB_STEP_SUMMARY
+        echo "Flash this kernel and check if Risk Detector still shows 'Evil Kernel'" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- If **still detected**: CONFIG_KSU=y in /proc/config.gz is the issue" >> $GITHUB_STEP_SUMMARY
+        echo "- If **NOT detected**: SUSFS/KPM configs were the culprit" >> $GITHUB_STEP_SUMMARY
