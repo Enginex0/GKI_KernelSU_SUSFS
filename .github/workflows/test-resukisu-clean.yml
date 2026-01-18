@@ -1,4 +1,4 @@
-name: Test ReSukiSU Clean Build
+name: Test ReSukiSU SUSFS Build
 
 permissions:
   contents: write
@@ -27,19 +27,14 @@ on:
         default: "2024-05"
 
 jobs:
-  build-clean:
-    name: "Clean ReSukiSU ${{ inputs.kernel_version }}.${{ inputs.sub_level }}"
+  build-susfs:
+    name: "ReSukiSU+SUSFS ${{ inputs.kernel_version }}.${{ inputs.sub_level }}"
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
-
-    - name: Display Build Info
-      run: |
-        echo "ReSukiSU Test Build: ${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}"
-        echo "Features: CONFIG_KSU + AVC spoofing | No KPM, No SUSFS"
 
     - name: Free Disk Space
       uses: endersonmenezes/free-disk-space@v3
@@ -68,6 +63,8 @@ jobs:
         KERNEL_ROOT=$KERNEL_ROOT
         ANYKERNEL3=$GITHUB_WORKSPACE/AnyKernel3
         REPO=$GITHUB_WORKSPACE/git-repo/repo
+        SUSFS4KSU=$GITHUB_WORKSPACE/susfs4ksu
+        KERNEL_PATCHES=$GITHUB_WORKSPACE/kernel_patches
         EOF
 
         mkdir -p "$GITHUB_WORKSPACE/git-repo"
@@ -103,7 +100,7 @@ jobs:
           [[ -n "$EXTRACTED" ]] && ACTUAL_SUBLEVEL="$EXTRACTED"
         fi
 
-        ARTIFACT_BASE="${{ inputs.kernel_version }}.$ACTUAL_SUBLEVEL-${{ inputs.android_version }}-${{ inputs.os_patch_level }}-ReSukiSU-CLEAN"
+        ARTIFACT_BASE="${{ inputs.kernel_version }}.$ACTUAL_SUBLEVEL-${{ inputs.android_version }}-${{ inputs.os_patch_level }}-ReSukiSU-SUSFS"
         echo "ACTUAL_SUBLEVEL=$ACTUAL_SUBLEVEL" >> $GITHUB_ENV
         echo "ARTIFACT_BASE=$ARTIFACT_BASE" >> $GITHUB_ENV
         echo "FILE_NAME=$ARTIFACT_BASE" >> $GITHUB_ENV
@@ -157,14 +154,45 @@ jobs:
           sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' "$DRIVER_DIR/Kconfig"
         fi
 
+    - name: Clone and Apply SUSFS
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
+        git clone https://github.com/Enginex0/susfs4ksu.git -b "$SUSFS_BRANCH" "$SUSFS4KSU"
+
+        cd "$KERNEL_ROOT/KernelSU"
+        SUSFS_PATCH="$SUSFS4KSU/kernel_patches/KernelSU/10_enable_susfs_for_resukisu.patch"
+        if [ ! -f "$SUSFS_PATCH" ]; then
+          echo "ERROR: ReSukiSU SUSFS patch not found: $SUSFS_PATCH"
+          exit 1
+        fi
+        patch -p1 --fuzz=3 < "$SUSFS_PATCH"
+
+        cd "$KERNEL_ROOT/common"
+        cp "$SUSFS4KSU/kernel_patches/fs/"* ./fs/
+        cp "$SUSFS4KSU/kernel_patches/include/linux/"* ./include/linux/
+
+        SUSFS_KERNEL_PATCH="$SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
+        patch -p1 < "$SUSFS_KERNEL_PATCH" || true
+
+        if [ -f "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" ]; then
+          patch -p1 --fuzz=3 < "$SUSFS4KSU/kernel_patches/fs/51_add_susfs_unicode_filter_hooks.patch" || true
+        fi
+
+        if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
+          if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
+            sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
+          fi
+        fi
+
     - name: Configure Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         cat >> "${{ env.DEFCONFIG }}" << 'EOF'
         CONFIG_KSU=y
-        # CONFIG_KPM is not set
-        # CONFIG_KSU_SUSFS is not set
-        # CONFIG_KSU_DEBUG is not set
+        CONFIG_KSU_SUSFS=y
+        CONFIG_KSU_SUSFS_UNICODE_FILTER=y
+        CONFIG_KSU_MANUAL_SU=y
         EOF
 
         if [[ "${{ inputs.kernel_version }}" == "6.12" ]]; then
@@ -189,7 +217,7 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git add .
-        git commit -m "Clean build flags" || true
+        git commit -m "Apply patches" || true
 
     - name: Set Stock Build Identity
       working-directory: ${{ env.KERNEL_ROOT }}/common
@@ -201,8 +229,6 @@ jobs:
         STOCK_DATE="${PATCH_YEAR}-${PATCH_MONTH}-15 12:00:00 UTC"
         STOCK_TIMESTAMP=$(date -d "$STOCK_DATE" "+%a %b %d %H:%M:%S UTC %Y" 2>/dev/null || date -u "+%a %b %d %H:%M:%S UTC %Y")
         STOCK_VERSION_STRING="#1 SMP PREEMPT $STOCK_TIMESTAMP"
-
-        echo "Stock identity: $STOCK_VERSION_STRING"
 
         if [ -f "scripts/mkcompile_h" ]; then
           sed -i "s|UTS_VERSION=.*|UTS_VERSION=\"$STOCK_VERSION_STRING\"|" scripts/mkcompile_h
@@ -223,7 +249,6 @@ jobs:
     - name: Build Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        set -ex
         if [ -f "build/build.sh" ]; then
           LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
         else
@@ -237,7 +262,6 @@ jobs:
         elif [ -f "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image" ]; then
           cp "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image" "$ANYKERNEL3/Image"
         else
-          echo "Error: Image file not found"
           find $KERNEL_ROOT -name "Image" -type f 2>/dev/null || true
           exit 1
         fi
@@ -251,7 +275,12 @@ jobs:
 
     - name: Build Summary
       run: |
-        echo "## ReSukiSU Test Build" >> $GITHUB_STEP_SUMMARY
-        echo "- Kernel: ${{ inputs.kernel_version }}.${{ env.ACTUAL_SUBLEVEL }}" >> $GITHUB_STEP_SUMMARY
-        echo "- Features: CONFIG_KSU + AVC spoofing" >> $GITHUB_STEP_SUMMARY
-        echo "- Excluded: KPM, SUSFS, NoMount" >> $GITHUB_STEP_SUMMARY
+        echo "## ReSukiSU + SUSFS Build" >> $GITHUB_STEP_SUMMARY
+        echo "| Config | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Kernel | ${{ inputs.kernel_version }}.${{ env.ACTUAL_SUBLEVEL }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Android | ${{ inputs.android_version }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| KSU | ReSukiSU (builtin) |" >> $GITHUB_STEP_SUMMARY
+        echo "| SUSFS | Enabled |" >> $GITHUB_STEP_SUMMARY
+        echo "| AVC Spoofing | Enabled |" >> $GITHUB_STEP_SUMMARY
+        echo "| Manual SU | Enabled |" >> $GITHUB_STEP_SUMMARY
