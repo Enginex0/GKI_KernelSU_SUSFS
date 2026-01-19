@@ -220,20 +220,39 @@ jobs:
               echo "WildKSU extras.c patched"
             fi
 
-            # Patch WildKSU ksud.c to always call ksu_avc_spoof_late_init
+            # Patch WildKSU ksud.c to always call ksu_avc_spoof_late_init (regardless of SUSFS)
             KSUD_FILE="$KERNEL_ROOT/Wild_KSU/kernel/ksud.c"
             if [ -f "$KSUD_FILE" ]; then
               echo "Patching WildKSU ksud.c to enable AVC spoof with SUSFS..."
 
-              # Use AWK for reliable patching - add ksu_avc_spoof_late_init() after track_throne(true)
-              awk '/track_throne\(true\);/{print; print "\tksu_avc_spoof_late_init();"; next}1' "$KSUD_FILE" > "$KSUD_FILE.tmp" && mv "$KSUD_FILE.tmp" "$KSUD_FILE"
+              # Use AWK to:
+              # 1. Add unconditional ksu_avc_spoof_late_init() after track_throne(true)
+              # 2. REMOVE the original guarded block to avoid double initialization
+              awk '
+              /track_throne\(true\);/ {
+                print
+                print "\tksu_avc_spoof_late_init();"
+                # Skip the next 3 lines (the guarded block)
+                # #ifndef CONFIG_KSU_SUSFS
+                #     ksu_avc_spoof_late_init();
+                # #endif // CONFIG_KSU_SUSFS
+                getline  # skip #ifndef
+                getline  # skip the original call
+                getline  # skip #endif
+                next
+              }
+              {print}
+              ' "$KSUD_FILE" > "$KSUD_FILE.tmp" && mv "$KSUD_FILE.tmp" "$KSUD_FILE"
 
-              # Verify the patch was applied
+              # Verify: should have exactly ONE ksu_avc_spoof_late_init call after track_throne
+              AVC_CALLS=$(grep -c "ksu_avc_spoof_late_init" "$KSUD_FILE" || true)
               if grep -q "track_throne(true);" "$KSUD_FILE" && grep -A1 "track_throne(true);" "$KSUD_FILE" | grep -q "ksu_avc_spoof_late_init"; then
-                echo "SUCCESS: ksu_avc_spoof_late_init() call added after track_throne()"
+                echo "SUCCESS: ksu_avc_spoof_late_init() unconditionally added (found $AVC_CALLS total calls)"
+                # Show the patched section for verification
+                grep -A3 "track_throne(true);" "$KSUD_FILE" | head -5
               else
                 echo "ERROR: Failed to add ksu_avc_spoof_late_init() call"
-                grep -A2 "track_throne" "$KSUD_FILE"
+                grep -A5 "track_throne" "$KSUD_FILE"
                 exit 1
               fi
 
@@ -637,12 +656,62 @@ jobs:
         echo "Applying NoMount patch: $NOMOUNT_PATCH"
 
         # Apply patch with fuzz to handle minor line number differences
-        # Allow failures for files that conflict with SUSFS (we'll fix manually)
-        patch -p1 --fuzz=3 < "$NOMOUNT_PATCH" || true
+        # Capture exit code but continue - some hunks may fail due to SUSFS conflicts
+        echo "Applying NoMount patch..."
+        set +e
+        patch -p1 --fuzz=3 < "$NOMOUNT_PATCH"
+        PATCH_EXIT=$?
+        set -e
+
+        if [ $PATCH_EXIT -ne 0 ]; then
+          echo "WARNING: NoMount patch had issues (exit code $PATCH_EXIT)"
+          echo "Checking for .rej files..."
+          find . -name "*.rej" -exec echo "REJECT: {}" \; -exec cat {} \; 2>/dev/null || true
+        fi
 
         # Check if core NoMount files were created (uses obfuscated names: vfs_dcache)
         if [[ -f "fs/vfs_dcache.c" && -f "include/linux/vfs_dcache.h" ]]; then
-          echo "SUCCESS: NoMount core files created (fs/vfs_dcache.c, include/linux/vfs_dcache.h)"
+          echo "SUCCESS: NoMount core files exist"
+
+          # CRITICAL: Validate vfs_dcache.h content to catch truncation
+          echo "Validating vfs_dcache.h content..."
+          VFS_HEADER="include/linux/vfs_dcache.h"
+          VFS_LINES=$(wc -l < "$VFS_HEADER")
+          VFS_FIRST=$(head -1 "$VFS_HEADER")
+          VFS_LAST=$(tail -1 "$VFS_HEADER")
+
+          echo "  Lines: $VFS_LINES"
+          echo "  First line: $VFS_FIRST"
+          echo "  Last line: $VFS_LAST"
+
+          # Validate header guards
+          if [[ "$VFS_FIRST" != "#ifndef _LINUX_VFS_DCACHE_H" ]]; then
+            echo "ERROR: vfs_dcache.h has wrong first line! Expected: #ifndef _LINUX_VFS_DCACHE_H"
+            echo "=== First 20 lines of vfs_dcache.h ==="
+            head -20 "$VFS_HEADER"
+            echo "=== Last 10 lines of vfs_dcache.h ==="
+            tail -10 "$VFS_HEADER"
+            exit 1
+          fi
+
+          if [[ "$VFS_LAST" != "#endif /* _LINUX_VFS_DCACHE_H */" ]]; then
+            echo "ERROR: vfs_dcache.h has wrong last line! Expected: #endif /* _LINUX_VFS_DCACHE_H */"
+            echo "=== First 20 lines of vfs_dcache.h ==="
+            head -20 "$VFS_HEADER"
+            echo "=== Last 10 lines of vfs_dcache.h ==="
+            tail -10 "$VFS_HEADER"
+            exit 1
+          fi
+
+          # Validate minimum line count (should be ~186 lines)
+          if [ "$VFS_LINES" -lt 150 ]; then
+            echo "ERROR: vfs_dcache.h too short ($VFS_LINES lines)! File may be truncated."
+            echo "=== Full content of vfs_dcache.h ==="
+            cat "$VFS_HEADER"
+            exit 1
+          fi
+
+          echo "SUCCESS: vfs_dcache.h validated ($VFS_LINES lines, proper guards)"
         else
           echo "ERROR: NoMount core files missing!"
           ls -la fs/vfs_dcache.c include/linux/vfs_dcache.h 2>&1 || true
