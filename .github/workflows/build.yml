@@ -804,7 +804,14 @@ jobs:
         # (statfs.c removed from patch - use injection script for cross-version compatibility)
         echo "Applying statfs.c hooks via semantic injection script..."
         chmod +x "$NOMOUNT_VFS/patches/inject-statfs-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-statfs-hooks.sh" fs/statfs.c || echo "WARNING: statfs injection had issues (non-fatal)"
+        bash "$NOMOUNT_VFS/patches/inject-statfs-hooks.sh" fs/statfs.c
+        STATFS_RC=$?
+        if [ $STATFS_RC -ne 0 ]; then
+            echo "FATAL: statfs hook injection failed with code $STATFS_RC"
+            echo "This is required for detection bypass. Cannot continue."
+            exit 1
+        fi
+        echo "statfs hooks applied successfully"
 
         # Apply xattr.c hooks using semantic injection script
         # (Hooks __vfs_getxattr for SELinux context spoofing)
