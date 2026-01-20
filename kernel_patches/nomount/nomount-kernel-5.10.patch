@@ -131,7 +131,7 @@ new file mode 100644
 index 000000000..43ca3f0fa
 --- /dev/null
 +++ b/fs/vfs_dcache.c
-@@ -0,0 +1,1901 @@
+@@ -0,0 +1,1919 @@
 +#include <linux/module.h>
 +#include <linux/kernel.h>
 +#include <linux/init.h>
@@ -716,6 +716,14 @@ index 000000000..43ca3f0fa
 +		return false;
 +	}
 +
++#ifdef CONFIG_KSU_SUSFS
++	/* Don't allow /data/adb traversal for SUSFS detection targets - prevents KernelSU exposure */
++	if (susfs_is_current_proc_umounted()) {
++		NM_DBG("is_traversal: blocked by SUSFS (detection target)\n");
++		return false;
++	}
++#endif
++
 +	if (!(mask & MAY_EXEC)) {
 +		NM_DBG("is_traversal: not MAY_EXEC mask, returning false\n");
 +		return false;
@@ -1222,6 +1230,11 @@ index 000000000..43ca3f0fa
 +
 +	if (NOMOUNT_DISABLED() || nomount_is_uid_blocked(current_uid().val)) return;
 +
++#ifdef CONFIG_KSU_SUSFS
++	/* Don't inject directory entries for SUSFS detection targets - prevents KernelSU exposure */
++	if (susfs_is_current_proc_umounted()) return;
++#endif
++
 +	page_buf = __getname();
 +	if (!page_buf) return;
 +
@@ -1280,6 +1293,11 @@ index 000000000..43ca3f0fa
 +	unsigned long fake_ino;
 +
 +	if (NOMOUNT_DISABLED() || nomount_is_uid_blocked(current_uid().val)) return;
++
++#ifdef CONFIG_KSU_SUSFS
++	/* Don't inject directory entries for SUSFS detection targets - prevents KernelSU exposure */
++	if (susfs_is_current_proc_umounted()) return;
++#endif
 +
 +	page_buf = __getname();
 +	if (!page_buf) return;
