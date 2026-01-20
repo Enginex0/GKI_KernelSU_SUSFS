@@ -743,13 +743,21 @@ jobs:
         # (Replaces sed-based approach for better cross-version compatibility)
         echo "Applying namei.c vfs_readlink hook via semantic injection script..."
         chmod +x "$NOMOUNT_VFS/patches/inject-namei-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-namei-hooks.sh" fs/namei.c || echo "WARNING: namei injection had issues"
+        bash "$NOMOUNT_VFS/patches/inject-namei-hooks.sh" fs/namei.c
+        if [ $? -ne 0 ]; then
+            echo "FATAL: inject-namei-hooks.sh failed"
+            exit 1
+        fi
 
         # Apply readdir.c hooks using semantic injection script
         # (readdir.c removed from patch - always use injection script for cross-version compatibility)
         echo "Applying readdir.c hooks via semantic injection script..."
         chmod +x "$NOMOUNT_VFS/patches/inject-readdir-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-readdir-hooks.sh" fs/readdir.c || echo "WARNING: readdir injection had issues"
+        bash "$NOMOUNT_VFS/patches/inject-readdir-hooks.sh" fs/readdir.c
+        if [ $? -ne 0 ]; then
+            echo "FATAL: inject-readdir-hooks.sh failed"
+            exit 1
+        fi
 
         # Kconfig and Makefile are already handled by the patch (CONFIG_FS_DCACHE_PREFETCH, vfs_dcache.o)
         # Only add if missing (shouldn't happen if patch applied correctly)
@@ -817,28 +825,74 @@ jobs:
         # (Hooks __vfs_getxattr for SELinux context spoofing)
         echo "Applying xattr.c hooks via semantic injection script..."
         chmod +x "$NOMOUNT_VFS/patches/inject-xattr-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-xattr-hooks.sh" fs/xattr.c || echo "WARNING: xattr injection had issues (non-fatal)"
+        bash "$NOMOUNT_VFS/patches/inject-xattr-hooks.sh" fs/xattr.c
+        if [ $? -ne 0 ]; then
+            echo "FATAL: inject-xattr-hooks.sh failed"
+            exit 1
+        fi
 
         # Apply proc_namespace.c hooks for /proc/mounts filtering
         echo "Applying proc_namespace.c hooks via semantic injection script..."
         chmod +x "$NOMOUNT_VFS/patches/inject-procmounts-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-procmounts-hooks.sh" fs/proc_namespace.c || true
+        bash "$NOMOUNT_VFS/patches/inject-procmounts-hooks.sh" fs/proc_namespace.c
+        if [ $? -ne 0 ]; then
+            echo "FATAL: inject-procmounts-hooks.sh failed"
+            exit 1
+        fi
 
         # Apply stat.c hooks for fstat/fstatat spoofing
         echo "Applying stat.c hooks via semantic injection script..."
         chmod +x "$NOMOUNT_VFS/patches/inject-stat-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-stat-hooks.sh" fs/stat.c || true
+        bash "$NOMOUNT_VFS/patches/inject-stat-hooks.sh" fs/stat.c
+        if [ $? -ne 0 ]; then
+            echo "FATAL: inject-stat-hooks.sh failed"
+            exit 1
+        fi
 
         # Apply task_mmu.c hooks for /proc/PID/maps filtering
         echo "Applying task_mmu.c hooks via semantic injection script..."
         chmod +x "$NOMOUNT_VFS/patches/inject-maps-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-maps-hooks.sh" fs/proc/task_mmu.c || true
+        bash "$NOMOUNT_VFS/patches/inject-maps-hooks.sh" fs/proc/task_mmu.c
+        if [ $? -ne 0 ]; then
+            echo "FATAL: inject-maps-hooks.sh failed"
+            exit 1
+        fi
 
         # Add CONFIG_FS_DCACHE_PREFETCH=y to defconfig
         echo "CONFIG_FS_DCACHE_PREFETCH=y" >> arch/arm64/configs/gki_defconfig
 
         # Clean up any .rej files
         find . -name "*.rej" -delete
+
+        # Validate all critical NoMount hooks are present
+        echo "=== Validating NoMount hooks ==="
+        HOOKS_VALID=1
+
+        if ! grep -q "vfs_dcache_spoof_stat_dev" fs/stat.c; then
+            echo "FATAL: fs/stat.c missing vfs_dcache_spoof_stat_dev hook"
+            HOOKS_VALID=0
+        fi
+
+        if ! grep -q "nomount_spoof_statfs" fs/statfs.c; then
+            echo "FATAL: fs/statfs.c missing nomount_spoof_statfs hook"
+            HOOKS_VALID=0
+        fi
+
+        if ! grep -q "vfs_dcache_should_hide_map" fs/proc/task_mmu.c; then
+            echo "FATAL: fs/proc/task_mmu.c missing maps hiding hook"
+            HOOKS_VALID=0
+        fi
+
+        if ! grep -q "vfs_dcache_is_mount_hidden" fs/proc_namespace.c; then
+            echo "FATAL: fs/proc_namespace.c missing mount hiding hook"
+            HOOKS_VALID=0
+        fi
+
+        if [ $HOOKS_VALID -eq 0 ]; then
+            echo "Hook validation FAILED. Build cannot continue."
+            exit 1
+        fi
+        echo "SUCCESS: All critical hooks validated"
 
         echo "=== NoMount integration complete ==="
 
