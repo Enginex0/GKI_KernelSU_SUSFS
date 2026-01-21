@@ -791,55 +791,8 @@ jobs:
           echo "SUCCESS: NoMount stat spoofing hook already present in fs/stat.c"
         fi
 
-        # Apply statfs.c hooks using semantic injection script
-        # (statfs.c removed from patch - use injection script for cross-version compatibility)
-        echo "Applying statfs.c hooks via semantic injection script..."
-        chmod +x "$NOMOUNT_VFS/patches/inject-statfs-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-statfs-hooks.sh" fs/statfs.c
-        STATFS_RC=$?
-        if [ $STATFS_RC -ne 0 ]; then
-            echo "FATAL: statfs hook injection failed with code $STATFS_RC"
-            echo "This is required for detection bypass. Cannot continue."
-            exit 1
-        fi
-        echo "statfs hooks applied successfully"
-
-        # Apply xattr.c hooks using semantic injection script
-        # (Hooks __vfs_getxattr for SELinux context spoofing)
-        echo "Applying xattr.c hooks via semantic injection script..."
-        chmod +x "$NOMOUNT_VFS/patches/inject-xattr-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-xattr-hooks.sh" fs/xattr.c
-        if [ $? -ne 0 ]; then
-            echo "FATAL: inject-xattr-hooks.sh failed"
-            exit 1
-        fi
-
-        # Apply proc_namespace.c hooks for /proc/mounts filtering
-        echo "Applying proc_namespace.c hooks via semantic injection script..."
-        chmod +x "$NOMOUNT_VFS/patches/inject-procmounts-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-procmounts-hooks.sh" fs/proc_namespace.c
-        if [ $? -ne 0 ]; then
-            echo "FATAL: inject-procmounts-hooks.sh failed"
-            exit 1
-        fi
-
-        # Apply stat.c hooks for fstat/fstatat spoofing
-        echo "Applying stat.c hooks via semantic injection script..."
-        chmod +x "$NOMOUNT_VFS/patches/inject-stat-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-stat-hooks.sh" fs/stat.c
-        if [ $? -ne 0 ]; then
-            echo "FATAL: inject-stat-hooks.sh failed"
-            exit 1
-        fi
-
-        # Apply task_mmu.c hooks for /proc/PID/maps filtering
-        echo "Applying task_mmu.c hooks via semantic injection script..."
-        chmod +x "$NOMOUNT_VFS/patches/inject-maps-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-maps-hooks.sh" fs/proc/task_mmu.c
-        if [ $? -ne 0 ]; then
-            echo "FATAL: inject-maps-hooks.sh failed"
-            exit 1
-        fi
+        # NOTE: All inject scripts (statfs, xattr, procmounts, stat, maps) are now merged into main patch
+        # No separate injection needed
 
         # Add CONFIG_FS_DCACHE_PREFETCH=y to defconfig
         echo "CONFIG_FS_DCACHE_PREFETCH=y" >> arch/arm64/configs/gki_defconfig
