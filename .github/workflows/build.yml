@@ -664,16 +664,29 @@ jobs:
 
         cd common
 
-        # Select appropriate CORE patch based on kernel version
-        # Core patch contains only infrastructure files (vfs_dcache.c/h, Kconfig, Makefile)
+        # Select appropriate FULL kernel patch based on kernel version
+        # Full patch contains infrastructure + ALL hooks (stat, statfs, maps, namei, xattr, readdir, proc_namespace)
+        # This includes hide_stuff functionality (lineage/jit-zygote-cache hiding)
         if [[ "${{ inputs.kernel_version }}" == "6.6" || "${{ inputs.kernel_version }}" == "6.1" || "${{ inputs.kernel_version }}" == "5.15" ]]; then
-          NOMOUNT_PATCH="$NOMOUNT_VFS/patches/nomount-core-5.15-6.6.patch"
+          NOMOUNT_PATCH="$NOMOUNT_VFS/patches/nomount-kernel-5.15-6.6.patch"
         else
-          NOMOUNT_PATCH="$NOMOUNT_VFS/patches/nomount-core-5.10.patch"
+          NOMOUNT_PATCH="$NOMOUNT_VFS/patches/nomount-kernel-5.10.patch"
         fi
 
-        echo "Applying NoMount CORE patch: $NOMOUNT_PATCH"
-        patch -p1 < "$NOMOUNT_PATCH"
+        echo "Applying NoMount patch: $NOMOUNT_PATCH"
+
+        # Apply patch with fuzz to handle minor line number differences
+        # Capture exit code but continue - some hunks may fail due to SUSFS conflicts
+        set +e
+        patch -p1 --fuzz=3 < "$NOMOUNT_PATCH"
+        PATCH_EXIT=$?
+        set -e
+
+        if [ $PATCH_EXIT -ne 0 ]; then
+          echo "WARNING: NoMount patch had issues (exit code $PATCH_EXIT)"
+          echo "Checking for .rej files..."
+          find . -name "*.rej" -exec echo "REJECT: {}" \; -exec cat {} \; 2>/dev/null || true
+        fi
 
         # Check if core NoMount files were created (uses obfuscated names: vfs_dcache)
         if [[ -f "fs/vfs_dcache.c" && -f "include/linux/vfs_dcache.h" ]]; then
@@ -739,38 +752,8 @@ jobs:
           echo 'obj-$(CONFIG_FS_DCACHE_PREFETCH) += vfs_dcache.o' >> fs/Makefile
         fi
 
-        # ===========================================
-        # Run NoMount inject scripts to add hooks
-        # Each script dynamically injects hooks into kernel source files
-        # ===========================================
-        echo "=== Running NoMount inject scripts ==="
-
-        # Make scripts executable
-        chmod +x "$NOMOUNT_VFS/patches/inject-"*.sh
-
-        # Run each inject script
-        echo "Injecting stat hooks..."
-        "$NOMOUNT_VFS/patches/inject-stat-hooks.sh" fs/stat.c
-
-        echo "Injecting statfs hooks..."
-        "$NOMOUNT_VFS/patches/inject-statfs-hooks.sh" fs/statfs.c
-
-        echo "Injecting maps hooks..."
-        "$NOMOUNT_VFS/patches/inject-maps-hooks.sh" fs/proc/task_mmu.c
-
-        echo "Injecting procmounts hooks..."
-        "$NOMOUNT_VFS/patches/inject-procmounts-hooks.sh" fs/proc_namespace.c
-
-        echo "Injecting xattr hooks..."
-        "$NOMOUNT_VFS/patches/inject-xattr-hooks.sh" fs/xattr.c
-
-        echo "Injecting namei hooks..."
-        "$NOMOUNT_VFS/patches/inject-namei-hooks.sh" fs/namei.c
-
-        echo "Injecting readdir hooks..."
-        "$NOMOUNT_VFS/patches/inject-readdir-hooks.sh" fs/readdir.c
-
-        echo "=== All NoMount hooks injected ==="
+        # NOTE: Full kernel patch already includes all hooks (stat, statfs, maps, namei, xattr, readdir, proc_namespace)
+        # No need for separate inject scripts
 
         # Add CONFIG_FS_DCACHE_PREFETCH=y to defconfig
         echo "CONFIG_FS_DCACHE_PREFETCH=y" >> arch/arm64/configs/gki_defconfig
@@ -814,6 +797,15 @@ jobs:
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
         echo "=== Applying 69_hide_stuff.patch ==="
+
+        # Skip if NoMount already applied hide_stuff functionality
+        # NoMount's nomount-kernel-*.patch includes lineage/jit-zygote-cache hiding
+        if grep -q "vfs_dcache_should_hide_map" fs/proc/task_mmu.c 2>/dev/null; then
+          echo "SKIP: NoMount kernel patch already includes hide_stuff functionality"
+          echo "Detected vfs_dcache_should_hide_map in task_mmu.c - avoiding duplicate patch"
+          exit 0
+        fi
+
         HIDE_PATCH="$GITHUB_WORKSPACE/SukiSU_patch/69_hide_stuff.patch"
         if [ -f "$HIDE_PATCH" ]; then
           cp "$HIDE_PATCH" ./
