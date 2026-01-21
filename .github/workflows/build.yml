@@ -34,6 +34,11 @@ on:
         required: false
         type: boolean
         default: true
+      device_codename:
+        description: 'Device codename for stock kernel spoofing (must exist in device-profiles.json)'
+        required: false
+        type: string
+        default: 'lake'
 
 jobs:
   build-gki:
@@ -659,28 +664,16 @@ jobs:
 
         cd common
 
-        # Select appropriate patch based on kernel version
+        # Select appropriate CORE patch based on kernel version
+        # Core patch contains only infrastructure files (vfs_dcache.c/h, Kconfig, Makefile)
         if [[ "${{ inputs.kernel_version }}" == "6.6" || "${{ inputs.kernel_version }}" == "6.1" || "${{ inputs.kernel_version }}" == "5.15" ]]; then
-          NOMOUNT_PATCH="$NOMOUNT_VFS/patches/nomount-kernel-5.15-6.6.patch"
+          NOMOUNT_PATCH="$NOMOUNT_VFS/patches/nomount-core-5.15-6.6.patch"
         else
-          NOMOUNT_PATCH="$NOMOUNT_VFS/patches/nomount-kernel-5.10.patch"
+          NOMOUNT_PATCH="$NOMOUNT_VFS/patches/nomount-core-5.10.patch"
         fi
 
-        echo "Applying NoMount patch: $NOMOUNT_PATCH"
-
-        # Apply patch with fuzz to handle minor line number differences
-        # Capture exit code but continue - some hunks may fail due to SUSFS conflicts
-        echo "Applying NoMount patch..."
-        set +e
-        patch -p1 --fuzz=3 < "$NOMOUNT_PATCH"
-        PATCH_EXIT=$?
-        set -e
-
-        if [ $PATCH_EXIT -ne 0 ]; then
-          echo "WARNING: NoMount patch had issues (exit code $PATCH_EXIT)"
-          echo "Checking for .rej files..."
-          find . -name "*.rej" -exec echo "REJECT: {}" \; -exec cat {} \; 2>/dev/null || true
-        fi
+        echo "Applying NoMount CORE patch: $NOMOUNT_PATCH"
+        patch -p1 < "$NOMOUNT_PATCH"
 
         # Check if core NoMount files were created (uses obfuscated names: vfs_dcache)
         if [[ -f "fs/vfs_dcache.c" && -f "include/linux/vfs_dcache.h" ]]; then
@@ -731,18 +724,7 @@ jobs:
           exit 1
         fi
 
-        # Fix fs/namei.c include if not applied (patch uses vfs_dcache.h)
-        if ! grep -q "vfs_dcache.h" fs/namei.c; then
-          echo "Adding NoMount include to fs/namei.c"
-          sed -i '/#include <linux\/uaccess.h>/a #ifdef CONFIG_FS_DCACHE_PREFETCH' fs/namei.c
-          sed -i '/#ifdef CONFIG_FS_DCACHE_PREFETCH/a #include <linux\/vfs_dcache.h>' fs/namei.c
-          sed -i '/#include <linux\/vfs_dcache.h>/a #endif' fs/namei.c
-        fi
-
-        # NOTE: inject-namei-hooks.sh and inject-readdir-hooks.sh are now merged into the main patch
-        # No separate injection scripts needed
-
-        # Kconfig and Makefile are already handled by the patch (CONFIG_FS_DCACHE_PREFETCH, vfs_dcache.o)
+        # Kconfig and Makefile are already handled by the core patch (CONFIG_FS_DCACHE_PREFETCH, vfs_dcache.o)
         # Only add if missing (shouldn't happen if patch applied correctly)
         if ! grep -q "CONFIG_FS_DCACHE_PREFETCH" fs/Kconfig; then
           echo "Adding CONFIG_FS_DCACHE_PREFETCH to fs/Kconfig (fallback)"
@@ -757,42 +739,38 @@ jobs:
           echo 'obj-$(CONFIG_FS_DCACHE_PREFETCH) += vfs_dcache.o' >> fs/Makefile
         fi
 
-        # Fix fs/stat.c stat spoofing hook (CRITICAL for detection bypass)
-        # This often fails to apply due to SUSFS already modifying generic_fillattr()
-        if ! grep -q "nomount_spoof_stat" fs/stat.c; then
-          echo "WARNING: NoMount stat spoofing hook not in fs/stat.c - applying manual fix"
-          # Add include for vfs_dcache.h if not present
-          if ! grep -q "linux/vfs_dcache.h" fs/stat.c; then
-            UACCESS_LINE=$(grep -n "include <linux/uaccess.h>" fs/stat.c | head -1 | cut -d: -f1)
-            [ -n "$UACCESS_LINE" ] && sed -i "${UACCESS_LINE}a #ifdef CONFIG_FS_DCACHE_PREFETCH" fs/stat.c
-            [ -n "$UACCESS_LINE" ] && sed -i "$((UACCESS_LINE+1))a #include <linux/vfs_dcache.h>" fs/stat.c
-            [ -n "$UACCESS_LINE" ] && sed -i "$((UACCESS_LINE+2))a #endif" fs/stat.c
-            echo "Added vfs_dcache.h include to fs/stat.c"
-          fi
-          # Add stat spoofing hook after stat->ino assignment
-          STAT_INO_LINE=$(grep -n "stat->ino = inode->i_ino;" fs/stat.c | head -1 | cut -d: -f1)
-          if [ -n "$STAT_INO_LINE" ]; then
-            sed -i "${STAT_INO_LINE}a\\ " fs/stat.c
-            sed -i "$((STAT_INO_LINE+1))a #ifdef CONFIG_FS_DCACHE_PREFETCH" fs/stat.c
-            sed -i "$((STAT_INO_LINE+2))a \\	/* Spoof stat values for VFS-redirected files */" fs/stat.c
-            sed -i "$((STAT_INO_LINE+3))a \\	if (nomount_is_injected_file(inode))" fs/stat.c
-            sed -i "$((STAT_INO_LINE+4))a \\		nomount_spoof_stat(inode, stat);" fs/stat.c
-            sed -i "$((STAT_INO_LINE+5))a #endif" fs/stat.c
-            echo "Added stat spoofing hook to fs/stat.c"
-          fi
-          # Verify the fix was applied
-          if grep -q "nomount_spoof_stat" fs/stat.c; then
-            echo "SUCCESS: fs/stat.c stat spoofing hook applied"
-          else
-            echo "ERROR: Failed to apply fs/stat.c stat spoofing hook"
-            exit 1
-          fi
-        else
-          echo "SUCCESS: NoMount stat spoofing hook already present in fs/stat.c"
-        fi
+        # ===========================================
+        # Run NoMount inject scripts to add hooks
+        # Each script dynamically injects hooks into kernel source files
+        # ===========================================
+        echo "=== Running NoMount inject scripts ==="
 
-        # NOTE: All inject scripts (statfs, xattr, procmounts, stat, maps) are now merged into main patch
-        # No separate injection needed
+        # Make scripts executable
+        chmod +x "$NOMOUNT_VFS/patches/inject-"*.sh
+
+        # Run each inject script
+        echo "Injecting stat hooks..."
+        "$NOMOUNT_VFS/patches/inject-stat-hooks.sh" fs/stat.c
+
+        echo "Injecting statfs hooks..."
+        "$NOMOUNT_VFS/patches/inject-statfs-hooks.sh" fs/statfs.c
+
+        echo "Injecting maps hooks..."
+        "$NOMOUNT_VFS/patches/inject-maps-hooks.sh" fs/proc/task_mmu.c
+
+        echo "Injecting procmounts hooks..."
+        "$NOMOUNT_VFS/patches/inject-procmounts-hooks.sh" fs/proc_namespace.c
+
+        echo "Injecting xattr hooks..."
+        "$NOMOUNT_VFS/patches/inject-xattr-hooks.sh" fs/xattr.c
+
+        echo "Injecting namei hooks..."
+        "$NOMOUNT_VFS/patches/inject-namei-hooks.sh" fs/namei.c
+
+        echo "Injecting readdir hooks..."
+        "$NOMOUNT_VFS/patches/inject-readdir-hooks.sh" fs/readdir.c
+
+        echo "=== All NoMount hooks injected ==="
 
         # Add CONFIG_FS_DCACHE_PREFETCH=y to defconfig
         echo "CONFIG_FS_DCACHE_PREFETCH=y" >> arch/arm64/configs/gki_defconfig
@@ -1260,52 +1238,76 @@ jobs:
     - name: Set Stock Build Identity
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
-        echo "=== Setting Stock Build Identity ==="
+        echo "=== Setting Stock Build Identity from device-profiles.json ==="
 
-        # Use Google's standard GKI build identity
-        STOCK_BUILD_USER="build-user"
-        STOCK_BUILD_HOST="build-host"
+        # Read device profile (default to lake for custom builds)
+        DEVICE_CODENAME="${{ inputs.device_codename || 'lake' }}"
+        PROFILE_JSON="$GITHUB_WORKSPACE/device-profiles.json"
 
-        # Get stock timestamp from os_patch_level (format: YYYY-MM)
-        # Convert to a realistic stock build date (15th of the month, 12:00:00 UTC)
-        PATCH_YEAR=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f1)
-        PATCH_MONTH=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f2)
+        if [ ! -f "$PROFILE_JSON" ]; then
+          echo "WARNING: device-profiles.json not found, using defaults"
+          STOCK_RELEASE=""
+          STOCK_VERSION_STRING="#1 SMP PREEMPT $(date -u '+%a %b %d %H:%M:%S UTC %Y')"
+          STOCK_BUILD_USER="build-user"
+          STOCK_BUILD_HOST="build-host"
+        else
+          echo "Reading stock kernel info for device: $DEVICE_CODENAME"
 
-        # Calculate day of week for the 15th of that month
-        STOCK_DATE="${PATCH_YEAR}-${PATCH_MONTH}-15 12:00:00 UTC"
-        STOCK_TIMESTAMP=$(date -d "$STOCK_DATE" "+%a %b %d %H:%M:%S UTC %Y" 2>/dev/null || date -u "+%a %b %d %H:%M:%S UTC %Y")
-        STOCK_VERSION_STRING="#1 SMP PREEMPT $STOCK_TIMESTAMP"
+          # Extract values using jq
+          STOCK_RELEASE=$(jq -r ".devices[\"$DEVICE_CODENAME\"].stock_kernel.release // \"\"" "$PROFILE_JSON")
+          STOCK_VERSION_STRING=$(jq -r ".devices[\"$DEVICE_CODENAME\"].stock_kernel.version_string // \"\"" "$PROFILE_JSON")
+          STOCK_BUILD_USER=$(jq -r ".devices[\"$DEVICE_CODENAME\"].stock_kernel.build_user // \"build-user\"" "$PROFILE_JSON")
+          STOCK_BUILD_HOST=$(jq -r ".devices[\"$DEVICE_CODENAME\"].stock_kernel.build_host // \"build-host\"" "$PROFILE_JSON")
 
-        echo "Stock identity: $STOCK_VERSION_STRING"
-        echo "Build user: $STOCK_BUILD_USER"
-        echo "Build host: $STOCK_BUILD_HOST"
+          echo "Stock release suffix: $STOCK_RELEASE"
+          echo "Stock version string: $STOCK_VERSION_STRING"
+          echo "Stock build user: $STOCK_BUILD_USER"
+          echo "Stock build host: $STOCK_BUILD_HOST"
+        fi
 
-        # Method 1: Patch mkcompile_h for older kernels (5.x, 6.1)
-        if [ -f "scripts/mkcompile_h" ]; then
+        # CRITICAL: Patch scripts/setlocalversion to return stock release suffix
+        if [ -n "$STOCK_RELEASE" ] && [ -f "scripts/setlocalversion" ]; then
+          echo "Patching scripts/setlocalversion to return stock release..."
+          # Backup original
+          cp scripts/setlocalversion scripts/setlocalversion.orig
+          # Replace with simple script that returns stock suffix
+          cat > scripts/setlocalversion << 'SCRIPT_EOF'
+#!/bin/sh
+# Spoofed to return stock kernel release suffix
+echo "STOCK_RELEASE_PLACEHOLDER"
+SCRIPT_EOF
+          # Replace placeholder with actual value
+          sed -i "s|STOCK_RELEASE_PLACEHOLDER|$STOCK_RELEASE|" scripts/setlocalversion
+          chmod +x scripts/setlocalversion
+          echo "setlocalversion patched. Will return: $STOCK_RELEASE"
+        fi
+
+        # Patch mkcompile_h for UTS_VERSION (5.x kernels)
+        if [ -f "scripts/mkcompile_h" ] && [ -n "$STOCK_VERSION_STRING" ]; then
           echo "Patching scripts/mkcompile_h..."
-
-          # Set UTS_VERSION to stock timestamp
           sed -i "s|UTS_VERSION=.*|UTS_VERSION=\"$STOCK_VERSION_STRING\"|" scripts/mkcompile_h
 
-          # Set build user and host
           if grep -q "LINUX_COMPILE_BY=" scripts/mkcompile_h; then
             sed -i "s|LINUX_COMPILE_BY=.*|LINUX_COMPILE_BY=\"$STOCK_BUILD_USER\"|" scripts/mkcompile_h
             sed -i "s|LINUX_COMPILE_HOST=.*|LINUX_COMPILE_HOST=\"$STOCK_BUILD_HOST\"|" scripts/mkcompile_h
           fi
         fi
 
-        # Method 2: Patch init/Makefile for newer kernels (6.6+)
+        # Patch init/Makefile for newer kernels (6.x)
         if [ -f "init/Makefile" ] && grep -q "build-timestamp" init/Makefile; then
-          echo "Patching init/Makefile for kernel 6.x..."
+          STOCK_TIMESTAMP=$(echo "$STOCK_VERSION_STRING" | sed 's/#1 SMP PREEMPT //')
           sed -i "s|build-timestamp = .*|build-timestamp = \"$STOCK_TIMESTAMP\"|" init/Makefile
         fi
 
-        # Method 3: Export KBUILD variables (backup)
-        echo "KBUILD_BUILD_TIMESTAMP=$STOCK_TIMESTAMP" >> $GITHUB_ENV
+        # Export KBUILD variables (backup method)
+        if [ -n "$STOCK_VERSION_STRING" ]; then
+          STOCK_TIMESTAMP=$(echo "$STOCK_VERSION_STRING" | sed 's/#1 SMP PREEMPT //')
+          echo "KBUILD_BUILD_TIMESTAMP=$STOCK_TIMESTAMP" >> $GITHUB_ENV
+        fi
         echo "KBUILD_BUILD_USER=$STOCK_BUILD_USER" >> $GITHUB_ENV
         echo "KBUILD_BUILD_HOST=$STOCK_BUILD_HOST" >> $GITHUB_ENV
 
-        echo "=== Stock build identity set ==="
+        echo "=== Stock build identity configured ==="
 
     - name: Build Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
