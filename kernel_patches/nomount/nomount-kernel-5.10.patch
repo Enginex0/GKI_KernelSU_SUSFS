@@ -2535,15 +2535,15 @@ index 000000000..9e0fb1b21
 +#endif
 +
 +#endif /* _LINUX_VFS_DCACHE_H */
-
+ 
 diff --git a/fs/xattr.c b/fs/xattr.c
 index 91d3e68bc..f8e2c9a01 100644
 --- a/fs/xattr.c
 +++ b/fs/xattr.c
 @@ -23,6 +23,10 @@
-
+ 
  #include <linux/uaccess.h>
-
+ 
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +#include <linux/vfs_dcache.h>
 +#endif
@@ -2555,7 +2555,7 @@ index 91d3e68bc..f8e2c9a01 100644
  {
  	struct inode *inode = d_inode(dentry);
  	ssize_t error;
-
+ 
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	/* Spoof xattr list for injected files - return only security.selinux */
 +	if (nomount_is_injected_file(inode)) {
@@ -2589,7 +2589,7 @@ index 96b3f5e3b..8a7c4d2e1 100644
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +#include <linux/vfs_dcache.h>
 +#endif
-
+ 
  static int flags_by_mnt(int mnt_flags)
  {
 @@ -102,6 +106,13 @@ retry:
@@ -2627,7 +2627,7 @@ index 1fa38bca2..9c73de2f4 100644
 @@ -18,6 +18,10 @@
  #include <linux/uaccess.h>
  #include <asm/unaligned.h>
-
+ 
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +#include <linux/vfs_dcache.h>
 +#endif
@@ -2648,10 +2648,10 @@ index 1fa38bca2..9c73de2f4 100644
  	stat->mode = inode->i_mode;
  	stat->nlink = inode->i_nlink;
  	stat->uid = inode->i_uid;
-@@ -95,7 +105,19 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
+@@ -95,8 +105,19 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
  		return inode->i_op->getattr(path, stat, request_mask,
  					    query_flags);
-
+ 
  	generic_fillattr(inode, stat);
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	{
@@ -2667,22 +2667,22 @@ index 1fa38bca2..9c73de2f4 100644
  	return 0;
  }
  EXPORT_SYMBOL(vfs_getattr_nosec);
-
+ 
 diff --git a/fs/proc/task_mmu.c b/fs/proc/task_mmu.c
 index 9a746a8c7..e3b4d2f81 100644
 --- a/fs/proc/task_mmu.c
 +++ b/fs/proc/task_mmu.c
-@@ -24,6 +24,10 @@
+@@ -24,6 +24,9 @@
  #include <asm/tlb.h>
  #include <asm/tlbflush.h>
  #include "internal.h"
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +#include <linux/vfs_dcache.h>
 +#endif
-
+ 
  #define SEQ_PUT_DEC(str, val) \
  		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
-@@ -330,6 +334,49 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
+@@ -332,5 +332,44 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
  	if (file) {
  		struct inode *inode = file_inode(vma->vm_file);
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
@@ -2730,10 +2730,10 @@ index 9a746a8c7..e3b4d2f81 100644
 diff --git a/fs/namei.c b/fs/namei.c
 --- a/fs/namei.c
 +++ b/fs/namei.c
-@@ -4685,6 +4709,51 @@ int vfs_readlink(struct dentry *dentry, char __user *buffer, int buflen)
+@@ -4685,6 +4709,55 @@ int vfs_readlink(struct dentry *dentry, char __user *buffer, int buflen)
  	const char *link;
  	int res;
-
+ 
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	/*
 +	 * For injected files that are symlinks, sanitize the symlink target
@@ -2789,10 +2789,10 @@ diff --git a/fs/namei.c b/fs/namei.c
 diff --git a/fs/xattr.c b/fs/xattr.c
 --- a/fs/xattr.c
 +++ b/fs/xattr.c
-@@ -365,6 +369,24 @@ __vfs_getxattr(struct dentry *dentry, struct inode *inode, const char *name,
+@@ -365,6 +369,22 @@ __vfs_getxattr(struct dentry *dentry, struct inode *inode, const char *name,
  	const struct xattr_handler *handler;
  	int error;
-
+ 
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	/* Spoof SELinux context for NoMount injected files */
 +	if (name && strcmp(name, XATTR_NAME_SELINUX) == 0) {
@@ -2813,18 +2813,17 @@ diff --git a/fs/xattr.c b/fs/xattr.c
  		goto nolsm;
  	error = xattr_permission(inode, name, MAY_READ);
 diff --git a/fs/readdir.c b/fs/readdir.c
-new file mode 100644
 --- a/fs/readdir.c
 +++ b/fs/readdir.c
 @@ -23,6 +23,9 @@
  #include <linux/compat.h>
  #include <linux/uaccess.h>
-
+ 
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +#include <linux/vfs_dcache.h>
 +#endif
  #include <asm/unaligned.h>
-
+ 
  /*
 @@ -354,6 +357,9 @@ SYSCALL_DEFINE3(getdents64, unsigned int, fd,
  		.current_dir = dirent
@@ -2833,10 +2832,10 @@ new file mode 100644
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	int initial_count = count;
 +#endif
-
+ 
  	f = fdget_pos(fd);
  	if (!f.file)
-@@ -362,6 +368,13 @@ SYSCALL_DEFINE3(getdents64, unsigned int, fd,
+@@ -362,6 +368,14 @@ SYSCALL_DEFINE3(getdents64, unsigned int, fd,
  	error = iterate_dir(f.file, &buf.ctx);
  	if (error >= 0)
  		error = buf.error;
@@ -2852,13 +2851,12 @@ new file mode 100644
  		struct linux_dirent64 __user * lastdirent;
  		typeof(lastdirent->d_off) d_off = buf.ctx.pos;
 diff --git a/fs/proc_namespace.c b/fs/proc_namespace.c
-new file mode 100644
 --- a/fs/proc_namespace.c
 +++ b/fs/proc_namespace.c
 @@ -18,6 +18,10 @@
  #include "pnode.h"
  #include "internal.h"
-
+ 
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +#include <linux/vfs_dcache.h>
 +#endif
@@ -2869,7 +2867,7 @@ new file mode 100644
 @@ -98,6 +102,14 @@ static int show_vfsmnt(struct seq_file *m, struct vfsmount *mnt)
  	struct super_block *sb = mnt_path.dentry->d_sb;
  	int err;
-
+ 
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	{
 +		struct mount *__nm_r = real_mount(mnt);
@@ -2884,7 +2882,7 @@ new file mode 100644
 @@ -132,6 +144,14 @@ static int show_mountinfo(struct seq_file *m, struct vfsmount *mnt)
  	struct path mnt_path = { .dentry = mnt->mnt_root, .mnt = mnt };
  	int err;
-
+ 
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	{
 +		struct mount *__nm_r = real_mount(mnt);
@@ -2899,7 +2897,7 @@ new file mode 100644
 @@ -194,6 +214,14 @@ static int show_vfsstat(struct seq_file *m, struct vfsmount *mnt)
  	struct super_block *sb = mnt_path.dentry->d_sb;
  	int err;
-
+ 
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +	{
 +		struct mount *__nm_r = real_mount(mnt);
