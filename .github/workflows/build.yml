@@ -805,25 +805,10 @@ jobs:
     - name: Apply Hide Stuff Patch
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
-        echo "=== Applying 69_hide_stuff.patch ==="
-
-        # Skip if NoMount already applied hide_stuff functionality
-        # NoMount's nomount-kernel-*.patch includes lineage/jit-zygote-cache hiding
-        if grep -q "vfs_dcache_should_hide_map" fs/proc/task_mmu.c 2>/dev/null; then
-          echo "SKIP: NoMount kernel patch already includes hide_stuff functionality"
-          echo "Detected vfs_dcache_should_hide_map in task_mmu.c - avoiding duplicate patch"
-          exit 0
-        fi
-
-        HIDE_PATCH="$GITHUB_WORKSPACE/SukiSU_patch/69_hide_stuff.patch"
-        if [ -f "$HIDE_PATCH" ]; then
-          cp "$HIDE_PATCH" ./
-          echo "Applying 69_hide_stuff.patch (LineageOS/JIT maps hiding)..."
-          patch -p1 -F 3 < 69_hide_stuff.patch || echo "Warning: 69_hide_stuff.patch had issues (may already be applied or kernel version mismatch)"
-          echo "=== Hide stuff patch complete ==="
-        else
-          echo "WARNING: 69_hide_stuff.patch not found at $HIDE_PATCH"
-        fi
+        echo "=== 69_hide_stuff.patch SKIPPED ==="
+        echo "All hide_stuff functionality is now integrated into NoMount kernel patch"
+        echo "  - task_mmu.c: lineage path spoofing + jit-zygote-cache hiding"
+        echo "  - base.c: map_files lineage spoofing (via inject-base-hide-stuff.sh)"
 
     - name: Upgrade LZ4 to v1.10.0 with ARM64 NEON
       if: ${{ inputs.use_zram }}
