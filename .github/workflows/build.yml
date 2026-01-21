@@ -658,147 +658,66 @@ jobs:
       run: |
         echo "=== Integrating NoMount ==="
 
-        # Clone nomount-vfs repo (single source of truth for all NoMount patches)
         git clone --depth 1 https://github.com/Enginex0/nomount-vfs.git "$GITHUB_WORKSPACE/nomount-vfs"
         NOMOUNT_VFS="$GITHUB_WORKSPACE/nomount-vfs"
 
         cd common
 
-        # Select appropriate FULL kernel patch based on kernel version
-        # Full patch contains infrastructure + ALL hooks (stat, statfs, maps, namei, xattr, readdir, proc_namespace)
-        # This includes hide_stuff functionality (lineage/jit-zygote-cache hiding)
+        # Select CORE patch (infrastructure only)
         if [[ "${{ inputs.kernel_version }}" == "6.6" || "${{ inputs.kernel_version }}" == "6.1" || "${{ inputs.kernel_version }}" == "5.15" ]]; then
-          NOMOUNT_PATCH="$NOMOUNT_VFS/patches/nomount-kernel-5.15-6.6.patch"
+          NOMOUNT_PATCH="$NOMOUNT_VFS/patches/nomount-core-5.15-6.6.patch"
         else
-          NOMOUNT_PATCH="$NOMOUNT_VFS/patches/nomount-kernel-5.10.patch"
+          NOMOUNT_PATCH="$NOMOUNT_VFS/patches/nomount-core-5.10.patch"
         fi
 
-        echo "Applying NoMount patch: $NOMOUNT_PATCH"
+        echo "Applying NoMount CORE patch: $NOMOUNT_PATCH"
+        patch -p1 < "$NOMOUNT_PATCH"
 
-        # Apply patch with fuzz to handle minor line number differences
-        # Capture exit code but continue - some hunks may fail due to SUSFS conflicts
-        set +e
-        patch -p1 --fuzz=3 < "$NOMOUNT_PATCH"
-        PATCH_EXIT=$?
-        set -e
-
-        if [ $PATCH_EXIT -ne 0 ]; then
-          echo "WARNING: NoMount patch had issues (exit code $PATCH_EXIT)"
-          echo "Checking for .rej files..."
-          find . -name "*.rej" -exec echo "REJECT: {}" \; -exec cat {} \; 2>/dev/null || true
-        fi
-
-        # Check if core NoMount files were created (uses obfuscated names: vfs_dcache)
+        # Verify core files created
         if [[ -f "fs/vfs_dcache.c" && -f "include/linux/vfs_dcache.h" ]]; then
-          echo "SUCCESS: NoMount core files exist"
-
-          # CRITICAL: Validate vfs_dcache.h content to catch truncation
-          echo "Validating vfs_dcache.h content..."
-          VFS_HEADER="include/linux/vfs_dcache.h"
-          VFS_LINES=$(wc -l < "$VFS_HEADER")
-          VFS_FIRST=$(head -1 "$VFS_HEADER")
-          VFS_LAST=$(tail -1 "$VFS_HEADER")
-
-          echo "  Lines: $VFS_LINES"
-          echo "  First line: $VFS_FIRST"
-          echo "  Last line: $VFS_LAST"
-
-          # Validate header guards
-          if [[ "$VFS_FIRST" != "#ifndef _LINUX_VFS_DCACHE_H" ]]; then
-            echo "ERROR: vfs_dcache.h has wrong first line! Expected: #ifndef _LINUX_VFS_DCACHE_H"
-            echo "=== First 20 lines of vfs_dcache.h ==="
-            head -20 "$VFS_HEADER"
-            echo "=== Last 10 lines of vfs_dcache.h ==="
-            tail -10 "$VFS_HEADER"
-            exit 1
-          fi
-
-          if [[ "$VFS_LAST" != "#endif /* _LINUX_VFS_DCACHE_H */" ]]; then
-            echo "ERROR: vfs_dcache.h has wrong last line! Expected: #endif /* _LINUX_VFS_DCACHE_H */"
-            echo "=== First 20 lines of vfs_dcache.h ==="
-            head -20 "$VFS_HEADER"
-            echo "=== Last 10 lines of vfs_dcache.h ==="
-            tail -10 "$VFS_HEADER"
-            exit 1
-          fi
-
-          # Validate minimum line count (should be ~186 lines)
-          if [ "$VFS_LINES" -lt 150 ]; then
-            echo "ERROR: vfs_dcache.h too short ($VFS_LINES lines)! File may be truncated."
-            echo "=== Full content of vfs_dcache.h ==="
-            cat "$VFS_HEADER"
-            exit 1
-          fi
-
-          echo "SUCCESS: vfs_dcache.h validated ($VFS_LINES lines, proper guards)"
+          echo "SUCCESS: NoMount core files created"
         else
           echo "ERROR: NoMount core files missing!"
-          ls -la fs/vfs_dcache.c include/linux/vfs_dcache.h 2>&1 || true
           exit 1
         fi
 
-        # Kconfig and Makefile are already handled by the core patch (CONFIG_FS_DCACHE_PREFETCH, vfs_dcache.o)
-        # Only add if missing (shouldn't happen if patch applied correctly)
-        if ! grep -q "CONFIG_FS_DCACHE_PREFETCH" fs/Kconfig; then
-          echo "Adding CONFIG_FS_DCACHE_PREFETCH to fs/Kconfig (fallback)"
-          echo "" >> fs/Kconfig
-          echo "config FS_DCACHE_PREFETCH" >> fs/Kconfig
-          echo "	bool \"VFS dcache prefetch support\"" >> fs/Kconfig
-          echo "	default y" >> fs/Kconfig
-        fi
+        # Run inject scripts to add hooks dynamically
+        echo "=== Running NoMount inject scripts ==="
+        chmod +x "$NOMOUNT_VFS/patches/inject-"*.sh
 
-        if ! grep -q "vfs_dcache.o" fs/Makefile; then
-          echo "Adding vfs_dcache.o to fs/Makefile (fallback)"
-          echo 'obj-$(CONFIG_FS_DCACHE_PREFETCH) += vfs_dcache.o' >> fs/Makefile
-        fi
+        echo "Injecting stat hooks..."
+        "$NOMOUNT_VFS/patches/inject-stat-hooks.sh" fs/stat.c
 
-        # NOTE: Full kernel patch already includes all hooks (stat, statfs, maps, namei, xattr, readdir, proc_namespace)
-        # No need for separate inject scripts
+        echo "Injecting statfs hooks..."
+        "$NOMOUNT_VFS/patches/inject-statfs-hooks.sh" fs/statfs.c
 
-        # Add CONFIG_FS_DCACHE_PREFETCH=y to defconfig
+        echo "Injecting maps hooks..."
+        "$NOMOUNT_VFS/patches/inject-maps-hooks.sh" fs/proc/task_mmu.c
+
+        echo "Injecting procmounts hooks..."
+        "$NOMOUNT_VFS/patches/inject-procmounts-hooks.sh" fs/proc_namespace.c
+
+        echo "Injecting xattr hooks..."
+        "$NOMOUNT_VFS/patches/inject-xattr-hooks.sh" fs/xattr.c
+
+        echo "Injecting namei hooks..."
+        "$NOMOUNT_VFS/patches/inject-namei-hooks.sh" fs/namei.c
+
+        echo "Injecting readdir hooks..."
+        "$NOMOUNT_VFS/patches/inject-readdir-hooks.sh" fs/readdir.c
+
+        echo "=== All NoMount hooks injected ==="
+
+        # Add config option
         echo "CONFIG_FS_DCACHE_PREFETCH=y" >> arch/arm64/configs/gki_defconfig
 
-        # Clean up any .rej files
-        find . -name "*.rej" -delete
-
-        # Validate all critical NoMount hooks are present
+        # Validate hooks
         echo "=== Validating NoMount hooks ==="
-        HOOKS_VALID=1
-
-        if ! grep -q "vfs_dcache_spoof_stat_dev" fs/stat.c; then
-            echo "FATAL: fs/stat.c missing vfs_dcache_spoof_stat_dev hook"
-            HOOKS_VALID=0
-        fi
-
-        if ! grep -q "nomount_spoof_statfs" fs/statfs.c; then
-            echo "FATAL: fs/statfs.c missing nomount_spoof_statfs hook"
-            HOOKS_VALID=0
-        fi
-
-        if ! grep -q "vfs_dcache_should_hide_map" fs/proc/task_mmu.c; then
-            echo "FATAL: fs/proc/task_mmu.c missing maps hiding hook"
-            HOOKS_VALID=0
-        fi
-
-        if ! grep -q "vfs_dcache_is_mount_hidden" fs/proc_namespace.c; then
-            echo "FATAL: fs/proc_namespace.c missing mount hiding hook"
-            HOOKS_VALID=0
-        fi
-
-        if [ $HOOKS_VALID -eq 0 ]; then
-            echo "Hook validation FAILED. Build cannot continue."
-            exit 1
-        fi
-        echo "SUCCESS: All critical hooks validated"
-
-        # Apply base.c hide_stuff injection (lineage spoofing in map_files)
-        # This is the second part of 69_hide_stuff.patch - NoMount kernel patch handles task_mmu.c
-        echo "Injecting base.c hide_stuff hooks..."
-        if [ -f "$NOMOUNT_VFS/patches/inject-base-hide-stuff.sh" ]; then
-          bash "$NOMOUNT_VFS/patches/inject-base-hide-stuff.sh" fs/proc/base.c
-        else
-          echo "WARNING: inject-base-hide-stuff.sh not found, base.c lineage spoofing not applied"
-        fi
+        grep -q "vfs_dcache_spoof_stat_dev" fs/stat.c || { echo "FAIL: stat.c hook missing"; exit 1; }
+        grep -q "nomount_spoof_statfs" fs/statfs.c || { echo "FAIL: statfs.c hook missing"; exit 1; }
+        grep -q "vfs_dcache_should_hide_map" fs/proc/task_mmu.c || { echo "FAIL: task_mmu.c hook missing"; exit 1; }
+        grep -q "vfs_dcache_is_mount_hidden" fs/proc_namespace.c || { echo "FAIL: proc_namespace.c hook missing"; exit 1; }
+        echo "SUCCESS: All hooks validated"
 
         echo "=== NoMount integration complete ==="
 
