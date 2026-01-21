@@ -1271,13 +1271,7 @@ jobs:
           # Backup original
           cp scripts/setlocalversion scripts/setlocalversion.orig
           # Replace with simple script that returns stock suffix
-          cat > scripts/setlocalversion << 'SCRIPT_EOF'
-#!/bin/sh
-# Spoofed to return stock kernel release suffix
-echo "STOCK_RELEASE_PLACEHOLDER"
-SCRIPT_EOF
-          # Replace placeholder with actual value
-          sed -i "s|STOCK_RELEASE_PLACEHOLDER|$STOCK_RELEASE|" scripts/setlocalversion
+          printf '#!/bin/sh\n# Spoofed to return stock kernel release suffix\necho "%s"\n' "$STOCK_RELEASE" > scripts/setlocalversion
           chmod +x scripts/setlocalversion
           echo "setlocalversion patched. Will return: $STOCK_RELEASE"
         fi
