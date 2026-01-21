@@ -2648,3 +2648,265 @@ index 1fa38bca2..9c73de2f4 100644
  	stat->mode = inode->i_mode;
  	stat->nlink = inode->i_nlink;
  	stat->uid = inode->i_uid;
+@@ -95,7 +105,19 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
+ 		return inode->i_op->getattr(path, stat, request_mask,
+ 					    query_flags);
+
+ 	generic_fillattr(inode, stat);
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++	{
++		char *__nm_buf = (char *)__get_free_page(GFP_KERNEL);
++		if (__nm_buf) {
++			char *__nm_path = d_path(path, __nm_buf, PAGE_SIZE);
++			if (!IS_ERR(__nm_path))
++				vfs_dcache_spoof_stat_dev(__nm_path, stat);
++			free_page((unsigned long)__nm_buf);
++		}
++	}
++#endif
+ 	return 0;
+ }
+ EXPORT_SYMBOL(vfs_getattr_nosec);
+diff --git a/fs/proc/task_mmu.c b/fs/proc/task_mmu.c
+index 9a746a8c7..e3b4d2f81 100644
+--- a/fs/proc/task_mmu.c
++++ b/fs/proc/task_mmu.c
+@@ -24,6 +24,10 @@
+ #include <asm/tlb.h>
+ #include <asm/tlbflush.h>
+ #include "internal.h"
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++#include <linux/vfs_dcache.h>
++#endif
+
+ #define SEQ_PUT_DEC(str, val) \
+ 		seq_put_decimal_ull_width(m, str, (val) << (PAGE_SHIFT-10), 8)
+@@ -330,6 +334,49 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
+ 	if (file) {
+ 		struct inode *inode = file_inode(vma->vm_file);
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++		{
++			char *__nm_buf = (char *)__get_free_page(GFP_KERNEL);
++			if (__nm_buf) {
++				char *__nm_path = file_path(file, __nm_buf, PAGE_SIZE);
++				if (!IS_ERR(__nm_path) && vfs_dcache_should_hide_map(__nm_path)) {
++					free_page((unsigned long)__nm_buf);
++					return;
++				}
++				free_page((unsigned long)__nm_buf);
++			}
++		}
++#endif
++		/* hide_stuff: lineage path spoofing and jit-zygote-cache hiding */
++		{
++			const char *__hs_dname = file->f_path.dentry->d_name.name;
++			/* Spoof lineage paths with fake framework path */
++			if (strstr(__hs_dname, "lineage")) {
++				unsigned long long __hs_pgoff = ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
++				vm_flags_t __hs_flags = vma->vm_flags;
++				seq_setwidth(m, 25 + sizeof(void *) * 6 - 1);
++				seq_printf(m, "%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu ",
++					vma->vm_start, vma->vm_end,
++					__hs_flags & VM_READ ? 'r' : '-',
++					__hs_flags & VM_WRITE ? 'w' : '-',
++					__hs_flags & VM_EXEC ? 'x' : '-',
++					__hs_flags & VM_MAYSHARE ? 's' : 'p',
++					__hs_pgoff,
++					MAJOR(inode->i_sb->s_dev), MINOR(inode->i_sb->s_dev), inode->i_ino);
++				seq_pad(m, ' ');
++				seq_puts(m, "/system/framework/framework-res.apk");
++				seq_putc(m, '\n');
++				return;
++			}
++			/* Hide jit-zygote-cache entries completely */
++			if (strstr(__hs_dname, "jit-zygote-cache")) {
++				return;
++			}
++		}
+ 		dev = inode->i_sb->s_dev;
+ 		ino = inode->i_ino;
+ 		pgoff = ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
+diff --git a/fs/namei.c b/fs/namei.c
+--- a/fs/namei.c
++++ b/fs/namei.c
+@@ -4685,6 +4709,51 @@ int vfs_readlink(struct dentry *dentry, char __user *buffer, int buflen)
+ 	const char *link;
+ 	int res;
+
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++	/*
++	 * For injected files that are symlinks, sanitize the symlink target
++	 * to hide revealing paths. Transform module paths to virtual paths:
++	 * /data/adb/modules/MODULE/system/... -> /system/...
++	 */
++	if (nomount_is_injected_file(inode)) {
++		DEFINE_DELAYED_CALL(nm_done);
++		const char *nm_link;
++		bool need_cleanup = false;
++
++		/* Get the symlink target first to check it */
++		nm_link = READ_ONCE(inode->i_link);
++		if (!nm_link && inode->i_op && inode->i_op->get_link) {
++			nm_link = inode->i_op->get_link(dentry, inode, &nm_done);
++			if (IS_ERR(nm_link)) {
++				return PTR_ERR(nm_link);
++			}
++			need_cleanup = true;
++		}
++
++		/* Sanitize symlink targets containing module paths */
++		if (nm_link) {
++			const char *sanitized = NULL;
++			const char *mod_prefix = strnstr(nm_link, "/data/adb/modules/", PATH_MAX);
++			const char *debug_prefix = strnstr(nm_link, "/debug_ramdisk/", PATH_MAX);
++
++			if (mod_prefix) {
++				/* Skip /data/adb/modules/MODULE_NAME to get /partition/... */
++				const char *after_modules = mod_prefix + 18; /* strlen("/data/adb/modules/") */
++				sanitized = strchr(after_modules, '/');
++			} else if (debug_prefix) {
++				/* Skip /debug_ramdisk to get /partition/... */
++				sanitized = debug_prefix + 14; /* strlen("/debug_ramdisk") */
++			}
++
++			if (sanitized) {
++				res = readlink_copy(buffer, buflen, sanitized);
++				if (need_cleanup)
++					do_delayed_call(&nm_done);
++				return res;
++			}
++
++			if (need_cleanup)
++				do_delayed_call(&nm_done);
++		}
++	}
++#endif
++
+ 	if (unlikely(!(inode->i_opflags & IOP_DEFAULT_READLINK))) {
+ 		if (unlikely(inode->i_op->readlink))
+ 			return inode->i_op->readlink(dentry, buffer, buflen);
+diff --git a/fs/xattr.c b/fs/xattr.c
+--- a/fs/xattr.c
++++ b/fs/xattr.c
+@@ -365,6 +369,24 @@ __vfs_getxattr(struct dentry *dentry, struct inode *inode, const char *name,
+ 	const struct xattr_handler *handler;
+ 	int error;
+
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++	/* Spoof SELinux context for NoMount injected files */
++	if (name && strcmp(name, XATTR_NAME_SELINUX) == 0) {
++		const char *spoofed_ctx = vfs_dcache_get_ctx(inode);
++		if (spoofed_ctx) {
++			size_t ctx_len = strlen(spoofed_ctx);
++			if (size == 0)
++				return ctx_len;
++			if (ctx_len > size)
++				return -ERANGE;
++			memcpy(value, spoofed_ctx, ctx_len);
++			return ctx_len;
++		}
++	}
++#endif
++
+ 	if (flags & XATTR_NOSECURITY)
+ 		goto nolsm;
+ 	error = xattr_permission(inode, name, MAY_READ);
+diff --git a/fs/readdir.c b/fs/readdir.c
+new file mode 100644
+--- a/fs/readdir.c
++++ b/fs/readdir.c
+@@ -23,6 +23,9 @@
+ #include <linux/compat.h>
+ #include <linux/uaccess.h>
+
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++#include <linux/vfs_dcache.h>
++#endif
+ #include <asm/unaligned.h>
+
+ /*
+@@ -354,6 +357,9 @@ SYSCALL_DEFINE3(getdents64, unsigned int, fd,
+ 		.current_dir = dirent
+ 	};
+ 	int error;
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++	int initial_count = count;
++#endif
+
+ 	f = fdget_pos(fd);
+ 	if (!f.file)
+@@ -362,6 +368,13 @@ SYSCALL_DEFINE3(getdents64, unsigned int, fd,
+ 	error = iterate_dir(f.file, &buf.ctx);
+ 	if (error >= 0)
+ 		error = buf.error;
++
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++	if (error >= 0 && !signal_pending(current)) {
++		nomount_inject_dents64(f.file, (void __user **)&dirent, &count, &f.file->f_pos);
++		error = initial_count - count;
++	}
++#endif
++
+ 	if (buf.prev_reclen) {
+ 		struct linux_dirent64 __user * lastdirent;
+ 		typeof(lastdirent->d_off) d_off = buf.ctx.pos;
+diff --git a/fs/proc_namespace.c b/fs/proc_namespace.c
+new file mode 100644
+--- a/fs/proc_namespace.c
++++ b/fs/proc_namespace.c
+@@ -18,6 +18,10 @@
+ #include "pnode.h"
+ #include "internal.h"
+
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++#include <linux/vfs_dcache.h>
++#endif
++
+ static __poll_t mounts_poll(struct file *file, poll_table *wait)
+ {
+ 	struct seq_file *m = file->private_data;
+@@ -98,6 +102,14 @@ static int show_vfsmnt(struct seq_file *m, struct vfsmount *mnt)
+ 	struct super_block *sb = mnt_path.dentry->d_sb;
+ 	int err;
+
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++	{
++		struct mount *__nm_r = real_mount(mnt);
++		if (vfs_dcache_is_mount_hidden(__nm_r->mnt_id))
++			return 0;
++	}
++#endif
++
+ 	if (sb->s_op->show_devname) {
+ 		err = sb->s_op->show_devname(m, mnt_path.dentry);
+ 		if (err)
+@@ -132,6 +144,14 @@ static int show_mountinfo(struct seq_file *m, struct vfsmount *mnt)
+ 	struct path mnt_path = { .dentry = mnt->mnt_root, .mnt = mnt };
+ 	int err;
+
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++	{
++		struct mount *__nm_r = real_mount(mnt);
++		if (vfs_dcache_is_mount_hidden(__nm_r->mnt_id))
++			return 0;
++	}
++#endif
++
+ 	seq_printf(m, "%i %i %u:%u ", r->mnt_id, r->mnt_parent->mnt_id,
+ 		   MAJOR(sb->s_dev), MINOR(sb->s_dev));
+ 	if (sb->s_op->show_path) {
+@@ -194,6 +214,14 @@ static int show_vfsstat(struct seq_file *m, struct vfsmount *mnt)
+ 	struct super_block *sb = mnt_path.dentry->d_sb;
+ 	int err;
+
++#ifdef CONFIG_FS_DCACHE_PREFETCH
++	{
++		struct mount *__nm_r = real_mount(mnt);
++		if (vfs_dcache_is_mount_hidden(__nm_r->mnt_id))
++			return 0;
++	}
++#endif
++
+ 	/* device */
+ 	if (sb->s_op->show_devname) {
+ 		seq_puts(m, "device ");
