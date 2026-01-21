@@ -739,25 +739,8 @@ jobs:
           sed -i '/#include <linux\/vfs_dcache.h>/a #endif' fs/namei.c
         fi
 
-        # Apply vfs_readlink hook using semantic injection script
-        # (Replaces sed-based approach for better cross-version compatibility)
-        echo "Applying namei.c vfs_readlink hook via semantic injection script..."
-        chmod +x "$NOMOUNT_VFS/patches/inject-namei-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-namei-hooks.sh" fs/namei.c
-        if [ $? -ne 0 ]; then
-            echo "FATAL: inject-namei-hooks.sh failed"
-            exit 1
-        fi
-
-        # Apply readdir.c hooks using semantic injection script
-        # (readdir.c removed from patch - always use injection script for cross-version compatibility)
-        echo "Applying readdir.c hooks via semantic injection script..."
-        chmod +x "$NOMOUNT_VFS/patches/inject-readdir-hooks.sh"
-        bash "$NOMOUNT_VFS/patches/inject-readdir-hooks.sh" fs/readdir.c
-        if [ $? -ne 0 ]; then
-            echo "FATAL: inject-readdir-hooks.sh failed"
-            exit 1
-        fi
+        # NOTE: inject-namei-hooks.sh and inject-readdir-hooks.sh are now merged into the main patch
+        # No separate injection scripts needed
 
         # Kconfig and Makefile are already handled by the patch (CONFIG_FS_DCACHE_PREFETCH, vfs_dcache.o)
         # Only add if missing (shouldn't happen if patch applied correctly)

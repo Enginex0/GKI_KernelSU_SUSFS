@@ -2667,6 +2667,7 @@ index 1fa38bca2..9c73de2f4 100644
  	return 0;
  }
  EXPORT_SYMBOL(vfs_getattr_nosec);
+
 diff --git a/fs/proc/task_mmu.c b/fs/proc/task_mmu.c
 index 9a746a8c7..e3b4d2f81 100644
 --- a/fs/proc/task_mmu.c
