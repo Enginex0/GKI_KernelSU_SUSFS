@@ -131,7 +131,7 @@ new file mode 100644
 index 000000000..43ca3f0fa
 --- /dev/null
 +++ b/fs/vfs_dcache.c
-@@ -0,0 +1,1919 @@
+@@ -0,0 +1,2191 @@
 +#include <linux/module.h>
 +#include <linux/kernel.h>
 +#include <linux/init.h>
@@ -2601,8 +2601,8 @@ index 96b3f5e3b..8a7c4d2e1 100644
 +
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +		/* Spoof statfs for NoMount redirected files */
-+		if (!error && f.file->f_path.dentry && f.file->f_d_backing_inode(path.dentry))
-+			nomount_spoof_statfs(f.file->f_d_backing_inode(path.dentry), st);
++		if (!error && f.file->f_path.dentry && d_backing_inode(f.file->f_path.dentry))
++			nomount_spoof_statfs(d_backing_inode(f.file->f_path.dentry), st);
 +#endif
 +
  		fdput(f);
