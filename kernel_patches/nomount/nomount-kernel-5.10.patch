@@ -1100,7 +1100,7 @@ index 000000000..43ca3f0fa
 +static struct kstatfs nm_cached_statfs[17];
 +static bool nm_statfs_initialized = false;
 +
-+static void __maybe_unused nomount_init_partition_statfs(void)
++static void nomount_init_partition_statfs(void)
 +{
 +	struct path path;
 +	static const char *partitions[] = {
@@ -1134,7 +1134,7 @@ index 000000000..43ca3f0fa
 +	NM_INFO("init_partition_statfs: cached statfs for %d partitions\n", cached_count);
 +}
 +
-+static int __maybe_unused nomount_get_partition_index(const char *virtual_path)
++static int nomount_get_partition_index(const char *virtual_path)
 +{
 +	if (!virtual_path)
 +		return 0;
@@ -1156,11 +1156,13 @@ index 000000000..43ca3f0fa
 +}
 +
 +/*
-+ * Runtime statfs derivation helper
-+ * Used when cached_statfs.f_type == 0 (cache failed at rule add time)
-+ * Derives statfs from virtual path's mount point at call time
++ * Runtime statfs derivation helper - DEPRECATED
++ * WARNING: This function calls kern_path() which gets redirected by NoMount!
++ * When NoMount redirects are active, this returns f2fs (data partition) statfs
++ * instead of erofs (system partition) statfs. Use nm_cached_statfs[] instead!
++ * Kept for reference but marked unused.
 + */
-+static int nomount_derive_statfs_runtime(const char *virtual_path, struct kstatfs *buf)
++static int __maybe_unused nomount_derive_statfs_runtime(const char *virtual_path, struct kstatfs *buf)
 +{
 +	struct path vpath, mnt_path;
 +	char *parent_path;
@@ -1256,20 +1258,30 @@ index 000000000..43ca3f0fa
 +	}
 +	rcu_read_unlock();
 +
-+	/* If we found a matching rule but cache was empty, try runtime derivation */
++	/* If we found a matching rule but cache was empty, use pre-cached partition statfs */
++	/* CRITICAL: Do NOT use nomount_derive_statfs_runtime() here - it calls kern_path() */
++	/* which gets redirected by NoMount, returning f2fs statfs instead of erofs! */
++	/* Instead, use the partition cache that was initialized BEFORE redirects were active */
 +	if (matched_rule && matched_rule->virtual_path) {
-+		int ret = nomount_derive_statfs_runtime(matched_rule->virtual_path, buf);
-+		if (ret == 0) {
-+			NM_INFO("spoof_statfs: RUNTIME DERIVATION SUCCESS ino=%lu vpath=%s -> f_type=0x%lx\n",
-+				inode->i_ino, matched_rule->virtual_path,
++		int part_idx;
++
++		/* Ensure partition statfs cache is initialized */
++		if (!nm_statfs_initialized)
++			nomount_init_partition_statfs();
++
++		part_idx = nomount_get_partition_index(matched_rule->virtual_path);
++		if (nm_cached_statfs[part_idx].f_type != 0) {
++			memcpy(buf, &nm_cached_statfs[part_idx], sizeof(*buf));
++			NM_INFO("spoof_statfs: PARTITION CACHE HIT ino=%lu vpath=%s part_idx=%d -> f_type=0x%lx\n",
++				inode->i_ino, matched_rule->virtual_path, part_idx,
 +				(unsigned long)buf->f_type);
 +			/* Also update the rule's cache for future calls */
 +			memcpy(&matched_rule->cached_statfs, buf, sizeof(*buf));
 +			NOMOUNT_HOOK_EXIT();
 +			return 0;
 +		} else {
-+			NM_DBG("spoof_statfs: runtime derivation failed (ret=%d) for vpath=%s\n",
-+				ret, matched_rule->virtual_path);
++			NM_DBG("spoof_statfs: partition cache miss for part_idx=%d vpath=%s\n",
++				part_idx, matched_rule->virtual_path);
 +		}
 +	}
 +
