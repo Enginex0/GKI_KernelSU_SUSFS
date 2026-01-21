@@ -791,6 +791,15 @@ jobs:
         fi
         echo "SUCCESS: All critical hooks validated"
 
+        # Apply base.c hide_stuff injection (lineage spoofing in map_files)
+        # This is the second part of 69_hide_stuff.patch - NoMount kernel patch handles task_mmu.c
+        echo "Injecting base.c hide_stuff hooks..."
+        if [ -f "$NOMOUNT_VFS/patches/inject-base-hide-stuff.sh" ]; then
+          bash "$NOMOUNT_VFS/patches/inject-base-hide-stuff.sh" fs/proc/base.c
+        else
+          echo "WARNING: inject-base-hide-stuff.sh not found, base.c lineage spoofing not applied"
+        fi
+
         echo "=== NoMount integration complete ==="
 
     - name: Apply Hide Stuff Patch
