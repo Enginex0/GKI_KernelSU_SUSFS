@@ -43,8 +43,8 @@ index a69e2cd36..8d52e7b00 100644
  	int error;
  
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
-+	if (path->dentry && path->dentry->d_inode) {
-+		char *v_path = nomount_get_virtual_path_for_inode(path->dentry->d_inode);
++	if (path->dentry && d_backing_inode(path->dentry)) {
++		char *v_path = nomount_get_virtual_path_for_inode(d_backing_inode(path->dentry));
 +
 +		if (v_path) {
 +			int len = strlen(v_path);
@@ -200,6 +200,42 @@ index 000000000..43ca3f0fa
 +
 +static unsigned long nm_ino_adb = 0;
 +static unsigned long nm_ino_modules = 0;
++
++/* Critical processes that NoMount should ignore to avoid instability */
++static const char *const critical_processes[] = {
++	"init",
++	"ueventd",
++	"watchdogd",
++	"vold",             /* Volume Daemon */
++	"logd",             /* Logging */
++	"servicemanager",   /* Binder */
++	"hwservicemanager", /* Hardware Binder */
++	"lmkd",             /* Low Memory Killer */
++	"tombstoned",       /* Crash dumps */
++	"zygote",           /* Android App Spawner */
++	"zygote64",
++	"surfaceflinger",   /* UI Compositor */
++	NULL
++};
++
++/* Returns true if the current process should be ignored */
++static bool nomount_is_critical_process(void) {
++	const char *const *proc_name;
++
++	if (current->flags & PF_KTHREAD)
++		return true;
++
++	if (current->tgid == 1)
++		return true;
++
++	for (proc_name = critical_processes; *proc_name; proc_name++) {
++		if (strcmp(current->comm, *proc_name) == 0)
++			return true;
++	}
++
++	return false;
++}
++
 +static dev_t nm_system_dev = 0;
 +static dev_t nm_vendor_dev = 0;
 +static dev_t nm_product_dev = 0;
@@ -240,9 +276,9 @@ index 000000000..43ca3f0fa
 +	if (last_slash && last_slash != parent_path) {
 +		*last_slash = '\0';
 +		if (kern_path(parent_path, LOOKUP_FOLLOW, &parent) == 0) {
-+			if (parent.dentry && parent.dentry->d_inode &&
-+			    parent.dentry->d_inode->i_mapping) {
-+				set_bit(AS_NOMOUNT_HAS_HIDDEN, &parent.dentry->d_inode->i_mapping->flags);
++			if (parent.dentry && d_backing_inode(parent.dentry) &&
++			    d_backing_inode(parent.dentry)->i_mapping) {
++				set_bit(AS_NOMOUNT_HAS_HIDDEN, &d_backing_inode(parent.dentry)->i_mapping->flags);
 +			}
 +			path_put(&parent);
 +		}
@@ -369,6 +405,8 @@ index 000000000..43ca3f0fa
 + */
 +static void nomount_get_parent_timestamps(const char *path, struct kstat *stat)
 +{
++	NM_DBG("get_parent_ts: path=%s\n", path ? path : "(null)");
++
 +	(void)path;  /* Unused - we always use static timestamps to prevent recursion */
 +
 +	/* Use static Android stock timestamps - safe, no VFS calls, no recursion */
@@ -378,17 +416,31 @@ index 000000000..43ca3f0fa
 +	stat->atime.tv_nsec = 0;
 +	stat->mtime.tv_nsec = 0;
 +	stat->ctime.tv_nsec = 0;
++
++	NM_DBG("get_parent_ts: set static timestamps (2009-01-01)\n");
 +}
 +
 +bool nomount_match_path(const char *input_path, const char *rule_path) {
-+	if (!input_path || !rule_path) return false;
++	NM_DBG("match_path: input=%s rule=%s\n",
++		input_path ? input_path : "(null)",
++		rule_path ? rule_path : "(null)");
 +
-+	if (strcmp(input_path, rule_path) == 0) return true;
++	if (!input_path || !rule_path) {
++		NM_DBG("match_path: null input, returning false\n");
++		return false;
++	}
++
++	if (strcmp(input_path, rule_path) == 0) {
++		NM_DBG("match_path: exact match\n");
++		return true;
++	}
 +	if (strncmp(input_path, "/system", 7) == 0) {
 +		if (strcmp(input_path + 7, rule_path) == 0) {
++			NM_DBG("match_path: /system prefix match\n");
 +			return true;
 +		}
 +	}
++	NM_DBG("match_path: no match\n");
 +	return false;
 +}
 +
@@ -417,10 +469,57 @@ index 000000000..43ca3f0fa
 +static void nomount_flush_dcache(const char *path_name) {
 +	struct path path;
 +	int err;
++
++	NM_DBG("flush_dcache: path=%s\n", path_name ? path_name : "(null)");
++
++	if (!path_name) {
++		NM_ERR("flush_dcache: null path_name\n");
++		return;
++	}
++
 +	err = kern_path(path_name, LOOKUP_FOLLOW, &path);
 +	if (!err) {
-+		d_invalidate(path.dentry);
++		d_drop(path.dentry);       /* Remove from hash first */
++		d_invalidate(path.dentry); /* Then invalidate */
 +		path_put(&path);
++		NM_DBG("flush_dcache: invalidated dentry for %s\n", path_name);
++	} else {
++		NM_DBG("flush_dcache: kern_path failed (err=%d) for %s\n", err, path_name);
++	}
++}
++
++/* Forces cache flushing for all active rules */
++static void nomount_force_refresh_all(void) {
++	struct nomount_rule *rule;
++	char **paths = NULL;
++	int count = 0, i;
++
++	spin_lock(&nomount_lock);
++
++	list_for_each_entry(rule, &nomount_rules_list, list) {
++		count++;
++	}
++
++	if (count > 0) {
++		paths = kmalloc_array(count, sizeof(char *), GFP_ATOMIC);
++		if (paths) {
++			i = 0;
++			list_for_each_entry(rule, &nomount_rules_list, list) {
++				if (i < count)
++					paths[i++] = kstrdup(rule->virtual_path, GFP_ATOMIC);
++			}
++		}
++	}
++	spin_unlock(&nomount_lock);
++
++	if (paths) {
++		for (i = 0; i < count; i++) {
++			if (paths[i]) {
++				nomount_flush_dcache(paths[i]);
++				kfree(paths[i]);
++			}
++		}
++		kfree(paths);
 +	}
 +}
 +
@@ -548,9 +647,23 @@ index 000000000..43ca3f0fa
 +}
 +
 +static unsigned long nomount_generate_ino(const char *dir, const char *name) {
-+	u32 h1 = full_name_hash(NULL, dir, strlen(dir));
-+	u32 h2 = full_name_hash(NULL, name, strlen(name));
-+	return (unsigned long)(h1 ^ h2);
++	u32 h1, h2;
++	unsigned long ino;
++
++	NM_DBG("generate_ino: dir=%s name=%s\n",
++		dir ? dir : "(null)", name ? name : "(null)");
++
++	if (!dir || !name) {
++		NM_ERR("generate_ino: null dir or name\n");
++		return 0;
++	}
++
++	h1 = full_name_hash(NULL, dir, strlen(dir));
++	h2 = full_name_hash(NULL, name, strlen(name));
++	ino = (unsigned long)(h1 ^ h2);
++
++	NM_DBG("generate_ino: result=%lu (h1=0x%x h2=0x%x)\n", ino, h1, h2);
++	return ino;
 +}
 +
 +char *nomount_get_virtual_path_for_inode(struct inode *inode) {
@@ -593,30 +706,62 @@ index 000000000..43ca3f0fa
 +static unsigned long nomount_get_inode_by_path(const char *path_str) {
 +	struct path path;
 +	unsigned long ino = 0;
-+	if (kern_path(path_str, LOOKUP_FOLLOW, &path) == 0) {
-+		if (path.dentry && path.dentry->d_inode) {
-+			ino = path.dentry->d_inode->i_ino;
++	int err;
++
++	NM_DBG("get_inode_by_path: path=%s\n", path_str ? path_str : "(null)");
++
++	if (!path_str) {
++		NM_ERR("get_inode_by_path: null path_str\n");
++		return 0;
++	}
++
++	err = kern_path(path_str, LOOKUP_FOLLOW, &path);
++	if (err == 0) {
++		if (path.dentry && d_backing_inode(path.dentry)) {
++			ino = d_backing_inode(path.dentry)->i_ino;
++			NM_DBG("get_inode_by_path: %s -> ino=%lu\n", path_str, ino);
++		} else {
++			NM_DBG("get_inode_by_path: %s has null dentry/inode\n", path_str);
 +		}
 +		path_put(&path);
++	} else {
++		NM_DBG("get_inode_by_path: kern_path failed (err=%d) for %s\n", err, path_str);
 +	}
++
 +	return ino;
 +}
 +
 +static void nomount_refresh_critical_inodes(void) {
-+	if (nm_ino_adb == 0)
-+		nm_ino_adb = nomount_get_inode_by_path("/data/adb");
++	unsigned long ino;
 +
-+	if (nm_ino_modules == 0)
-+		nm_ino_modules = nomount_get_inode_by_path("/data/adb/modules");
++	if (unlikely(in_interrupt() || in_nmi() || oops_in_progress))
++		return;
++
++	if (READ_ONCE(nm_ino_adb) == 0) {
++		ino = nomount_get_inode_by_path("/data/adb");
++		if (ino != 0)
++			WRITE_ONCE(nm_ino_adb, ino);
++	}
++
++	if (READ_ONCE(nm_ino_modules) == 0) {
++		ino = nomount_get_inode_by_path("/data/adb/modules");
++		if (ino != 0)
++			WRITE_ONCE(nm_ino_modules, ino);
++	}
 +}
 +
 +static void nomount_init_partition_devs(void)
 +{
 +	struct path path;
++	int count = 0;
++
++	NM_DBG("init_partition_devs: starting partition device cache\n");
 +
 +	if (nm_system_dev == 0 && kern_path("/system", LOOKUP_FOLLOW, &path) == 0) {
 +		nm_system_dev = path.dentry->d_sb->s_dev;
 +		path_put(&path);
++		NM_DBG("init_partition_devs: /system -> dev=%u\n", nm_system_dev);
++		count++;
 +	}
 +	if (nm_vendor_dev == 0 && kern_path("/vendor", LOOKUP_FOLLOW, &path) == 0) {
 +		nm_vendor_dev = path.dentry->d_sb->s_dev;
@@ -666,7 +811,11 @@ index 000000000..43ca3f0fa
 +	if (nm_vendor_dlkm_dev == 0 && kern_path("/vendor_dlkm", LOOKUP_FOLLOW, &path) == 0) {
 +		nm_vendor_dlkm_dev = path.dentry->d_sb->s_dev;
 +		path_put(&path);
++		NM_DBG("init_partition_devs: /vendor_dlkm -> dev=%u\n", nm_vendor_dlkm_dev);
++		count++;
 +	}
++
++	NM_INFO("init_partition_devs: cached %d partition device IDs\n", count);
 +}
 +
 +/* Get appropriate device ID for a virtual path */
@@ -745,7 +894,12 @@ index 000000000..43ca3f0fa
 +	struct nomount_rule *rule;
 +	int bkt;
 +	bool match = false;
-+	if (!inode || NOMOUNT_DISABLED()) return false;
++
++	if (!inode || NOMOUNT_DISABLED()) {
++		NM_DBG("is_injected: early exit (null=%d disabled=%d)\n",
++			!inode, NOMOUNT_DISABLED());
++		return false;
++	}
 +
 +	NM_DBG("is_injected: checking ino=%lu dev=%u\n", inode->i_ino, inode->i_sb->s_dev);
 +
@@ -761,6 +915,7 @@ index 000000000..43ca3f0fa
 +	}
 +	rcu_read_unlock();
 +
++	NM_DBG("is_injected: ino=%lu result=%s\n", inode->i_ino, match ? "true" : "false");
 +	return match;
 +}
 +EXPORT_SYMBOL(nomount_is_injected_file);
@@ -775,6 +930,9 @@ index 000000000..43ca3f0fa
 +	dev_t orig_dev;
 +	ino_t orig_ino;
 +	bool found = false;
++
++	if (nomount_is_critical_process())
++		return;
 +
 +	if (!inode || NOMOUNT_DISABLED())
 +		return;
@@ -830,6 +988,9 @@ index 000000000..43ca3f0fa
 +			stat->mtime.tv_nsec = 0;
 +			stat->ctime.tv_nsec = 0;
 +		}
++	} else {
++		NM_DBG("spoof_stat: no matching rule for ino=%lu dev=%u\n",
++			inode->i_ino, inode->i_sb->s_dev);
 +	}
 +	NOMOUNT_HOOK_EXIT();  /* Recursion guard */
 +}
@@ -841,12 +1002,19 @@ index 000000000..43ca3f0fa
 +	dev_t orig_dev;
 +	ino_t orig_ino;
 +
-+	if (!path || !stat || NOMOUNT_DISABLED())
++	NM_DBG("spoof_stat_dev: ENTER path=%s stat=%p\n",
++		path ? path : "(null)", stat);
++
++	if (!path || !stat || NOMOUNT_DISABLED()) {
++		NM_DBG("spoof_stat_dev: early exit (null/disabled)\n");
 +		return;
++	}
 +
 +	/* Skip spoofing for blocked UIDs (they can see through the injection) */
-+	if (nomount_is_uid_blocked(current_uid().val))
++	if (nomount_is_uid_blocked(current_uid().val)) {
++		NM_DBG("spoof_stat_dev: uid %u blocked\n", current_uid().val);
 +		return;
++	}
 +
 +	NM_DBG("spoof_stat_dev: checking path=%s\n", path);
 +
@@ -861,6 +1029,9 @@ index 000000000..43ca3f0fa
 +			path, orig_dev, stat->dev, orig_ino, stat->ino);
 +		/* Copy timestamps from parent directory for consistency */
 +		nomount_get_parent_timestamps(path, stat);
++	} else {
++		NM_DBG("spoof_stat_dev: no spoof needed for %s (expected_dev=%u stat->dev=%u)\n",
++			path, expected_dev, stat->dev);
 +	}
 +}
 +EXPORT_SYMBOL(vfs_dcache_spoof_stat_dev);
@@ -939,17 +1110,28 @@ index 000000000..43ca3f0fa
 +		"/vendor_dlkm", NULL
 +	};
 +	int i;
++	int cached_count = 0;
 +
-+	if (nm_statfs_initialized)
++	if (nm_statfs_initialized) {
++		NM_DBG("init_partition_statfs: already initialized\n");
 +		return;
++	}
++
++	NM_DBG("init_partition_statfs: starting statfs cache initialization\n");
 +
 +	for (i = 0; partitions[i] != NULL && i < 17; i++) {
 +		if (kern_path(partitions[i], LOOKUP_FOLLOW, &path) == 0) {
 +			vfs_statfs(&path, &nm_cached_statfs[i]);
++			NM_DBG("init_partition_statfs: cached %s (fstype=0x%lx)\n",
++				partitions[i], nm_cached_statfs[i].f_type);
 +			path_put(&path);
++			cached_count++;
++		} else {
++			NM_DBG("init_partition_statfs: %s not found\n", partitions[i]);
 +		}
 +	}
 +	nm_statfs_initialized = true;
++	NM_INFO("init_partition_statfs: cached statfs for %d partitions\n", cached_count);
 +}
 +
 +static int __maybe_unused nomount_get_partition_index(const char *virtual_path)
@@ -1034,6 +1216,9 @@ index 000000000..43ca3f0fa
 +	struct nomount_rule *matched_rule = NULL;
 +	int bkt;
 +
++	if (nomount_is_critical_process())
++		return -ENODATA;
++
 +	NM_DBG("spoof_statfs: ENTER inode=%p ino=%lu\n",
 +		inode, inode ? inode->i_ino : 0);
 +
@@ -1082,6 +1267,9 @@ index 000000000..43ca3f0fa
 +			memcpy(&matched_rule->cached_statfs, buf, sizeof(*buf));
 +			NOMOUNT_HOOK_EXIT();
 +			return 0;
++		} else {
++			NM_DBG("spoof_statfs: runtime derivation failed (ret=%d) for vpath=%s\n",
++				ret, matched_rule->virtual_path);
 +		}
 +	}
 +
@@ -1138,7 +1326,18 @@ index 000000000..43ca3f0fa
 +	char *target = NULL;
 +	u32 hash;
 +
-+	if (NOMOUNT_DISABLED() || nomount_is_uid_blocked(current_uid().val) || !pathname) return NULL;
++	if (nomount_is_critical_process())
++		return NULL;
++
++	NM_DBG("resolve_path: ENTER pathname=%s\n", pathname ? pathname : "(null)");
++
++	if (NOMOUNT_DISABLED() || nomount_is_uid_blocked(current_uid().val) || !pathname) {
++		NM_DBG("resolve_path: early exit (disabled=%d uid_blocked=%d null=%d)\n",
++			NOMOUNT_DISABLED(),
++			pathname ? nomount_is_uid_blocked(current_uid().val) : 0,
++			!pathname);
++		return NULL;
++	}
 +
 +	NM_DBG("resolve_path: looking up %s\n", pathname);
 +	hash = full_name_hash(NULL, pathname, strlen(pathname));
@@ -1171,8 +1370,18 @@ index 000000000..43ca3f0fa
 +	char *target_path;
 +	struct filename *new_name;
 +
-+	if (NOMOUNT_DISABLED() || nomount_is_uid_blocked(current_uid().val) || !name || name->name[0] != '/')
++	if (nomount_is_critical_process())
 +		return name;
++
++	NM_DBG("getname_hook: ENTER name=%p path=%s\n",
++		name, (name && name->name) ? name->name : "(null)");
++
++	if (NOMOUNT_DISABLED() || nomount_is_uid_blocked(current_uid().val) || !name || name->name[0] != '/') {
++		NM_DBG("getname_hook: early exit (disabled=%d null=%d non_abs=%d)\n",
++			NOMOUNT_DISABLED(), !name,
++			(name && name->name) ? (name->name[0] != '/') : 0);
++		return name;
++	}
 +
 +	NM_DBG("getname_hook: checking %s\n", name->name);
 +
@@ -1182,12 +1391,14 @@ index 000000000..43ca3f0fa
 +		new_name = getname_kernel(target_path);
 +		kfree(target_path);
 +		if (!IS_ERR(new_name)) {
++			NM_DBG("getname_hook: success, returning new_name for %s\n", new_name->name);
 +			putname(name);
 +			return new_name;
 +		} else {
 +			NM_ERR("getname_hook: getname_kernel failed (err=%ld)\n", PTR_ERR(new_name));
 +		}
 +	}
++	NM_DBG("getname_hook: no redirect, returning original\n");
 +	return name;
 +}
 +
@@ -1198,6 +1409,8 @@ index 000000000..43ca3f0fa
 +	bool found = false;
 +	int bkt;
 +
++	NM_DBG("find_next_injection: dir=%s index=%lu\n", dir_path, v_index);
++
 +	rcu_read_lock();
 +	hash_for_each_rcu(nomount_dirs_ht, bkt, node, node) {
 +		if (strcmp(dir_path, node->dir_path) == 0) {
@@ -1207,6 +1420,7 @@ index 000000000..43ca3f0fa
 +					strscpy(name_out, child->name, 256);
 +					*type_out = child->d_type;
 +					found = true;
++					NM_DBG("find_next_injection: found name=%s type=%u\n", name_out, *type_out);
 +					break;
 +				}
 +				current_idx++;
@@ -1215,6 +1429,10 @@ index 000000000..43ca3f0fa
 +		if (found) break;
 +	}
 +	rcu_read_unlock();
++
++	if (!found) {
++		NM_DBG("find_next_injection: no more entries for dir=%s\n", dir_path);
++	}
 +	return found;
 +}
 +
@@ -1227,6 +1445,7 @@ index 000000000..43ca3f0fa
 +	unsigned long v_index;
 +	int name_len, reclen;
 +	unsigned long fake_ino;
++	int injected_count = 0;
 +
 +	if (NOMOUNT_DISABLED() || nomount_is_uid_blocked(current_uid().val)) return;
 +
@@ -1236,13 +1455,19 @@ index 000000000..43ca3f0fa
 +#endif
 +
 +	page_buf = __getname();
-+	if (!page_buf) return;
++	if (!page_buf) {
++		NM_ERR("inject_dents64: failed to allocate page buffer\n");
++		return;
++	}
 +
 +	dir_path = d_path(&file->f_path, page_buf, PAGE_SIZE);
 +	if (IS_ERR(dir_path)) {
++		NM_DBG("inject_dents64: d_path failed (err=%ld)\n", PTR_ERR(dir_path));
 +		free_page((unsigned long)page_buf);
 +		return;
 +	}
++
++	NM_DBG("inject_dents64: dir=%s pos=%lld count=%d\n", dir_path, *pos, *count);
 +
 +	if (*pos >= NOMOUNT_MAGIC_POS) {
 +		v_index = *pos - NOMOUNT_MAGIC_POS;
@@ -1276,6 +1501,11 @@ index 000000000..43ca3f0fa
 +		*count -= reclen;
 +		*pos = NOMOUNT_MAGIC_POS + v_index + 1;
 +		v_index++;
++		injected_count++;
++	}
++
++	if (injected_count > 0) {
++		NM_DBG("inject_dents64: injected %d entries for dir=%s\n", injected_count, dir_path);
 +	}
 +
 +	__putname(page_buf);
@@ -1291,6 +1521,7 @@ index 000000000..43ca3f0fa
 +	unsigned long v_index;
 +	int name_len, reclen;
 +	unsigned long fake_ino;
++	int injected_count = 0;
 +
 +	if (NOMOUNT_DISABLED() || nomount_is_uid_blocked(current_uid().val)) return;
 +
@@ -1300,13 +1531,19 @@ index 000000000..43ca3f0fa
 +#endif
 +
 +	page_buf = __getname();
-+	if (!page_buf) return;
++	if (!page_buf) {
++		NM_ERR("inject_dents: failed to allocate page buffer\n");
++		return;
++	}
 +
 +	dir_path = d_path(&file->f_path, page_buf, PAGE_SIZE);
 +	if (IS_ERR(dir_path)) {
++		NM_DBG("inject_dents: d_path failed (err=%ld)\n", PTR_ERR(dir_path));
 +		free_page((unsigned long)page_buf);
 +		return;
 +	}
++
++	NM_DBG("inject_dents: dir=%s pos=%lld count=%d\n", dir_path, *pos, *count);
 +
 +	if (*pos >= NOMOUNT_MAGIC_POS) {
 +		v_index = *pos - NOMOUNT_MAGIC_POS;
@@ -1337,6 +1574,11 @@ index 000000000..43ca3f0fa
 +		*count -= reclen;
 +		*pos = NOMOUNT_MAGIC_POS + v_index + 1;
 +		v_index++;
++		injected_count++;
++	}
++
++	if (injected_count > 0) {
++		NM_DBG("inject_dents: injected %d entries for dir=%s\n", injected_count, dir_path);
 +	}
 +
 +	__putname(page_buf);
@@ -1360,11 +1602,23 @@ index 000000000..43ca3f0fa
 +	bool child_exists = false;
 +	bool parent_exists_on_disk = false;
 +
++	NM_DBG("auto_inject_parent: v_path=%s type=%u\n",
++		v_path ? v_path : "(null)", type);
++
++	if (!v_path) {
++		NM_ERR("auto_inject_parent: null v_path\n");
++		return;
++	}
++
 +	path_copy = kstrdup(v_path, GFP_KERNEL);
-+	if (!path_copy) return;
++	if (!path_copy) {
++		NM_ERR("auto_inject_parent: kstrdup failed for %s\n", v_path);
++		return;
++	}
 +
 +	last_slash = strrchr(path_copy, '/');
 +	if (!last_slash || last_slash == path_copy) {
++		NM_DBG("auto_inject_parent: reached root or invalid path %s\n", v_path);
 +		kfree(path_copy);
 +		return;
 +	}
@@ -1373,10 +1627,13 @@ index 000000000..43ca3f0fa
 +	parent_path = path_copy;
 +	name = last_slash + 1;
 +
++	NM_DBG("auto_inject_parent: parent=%s name=%s\n", parent_path, name);
++
 +	/* Check if parent directory already exists on disk */
 +	if (kern_path(parent_path, LOOKUP_FOLLOW, &sys_path) == 0) {
 +		parent_exists_on_disk = true;
 +		path_put(&sys_path);
++		NM_DBG("auto_inject_parent: parent %s exists on disk\n", parent_path);
 +	}
 +
 +	hash = full_name_hash(NULL, parent_path, strlen(parent_path));
@@ -1386,26 +1643,33 @@ index 000000000..43ca3f0fa
 +	hash_for_each_possible(nomount_dirs_ht, curr, node, hash) {
 +		if (strcmp(curr->dir_path, parent_path) == 0) {
 +			dir_node = curr;
++			NM_DBG("auto_inject_parent: found existing dir_node for %s\n", parent_path);
 +			break;
 +		}
 +	}
 +
 +	if (!dir_node) {
 +		dir_node = kzalloc(sizeof(*dir_node), GFP_ATOMIC);
-+		if (!dir_node) goto unlock_out;
++		if (!dir_node) {
++			NM_ERR("auto_inject_parent: failed to alloc dir_node for %s\n", parent_path);
++			goto unlock_out;
++		}
 +
 +		dir_node->dir_path = kstrdup(parent_path, GFP_ATOMIC);
 +		if (!dir_node->dir_path) {
++			NM_ERR("auto_inject_parent: failed to alloc dir_path for %s\n", parent_path);
 +			kfree(dir_node);
 +			goto unlock_out;
 +		}
 +		INIT_LIST_HEAD(&dir_node->children_names);
 +		hash_add_rcu(nomount_dirs_ht, &dir_node->node, hash);
++		NM_DBG("auto_inject_parent: created new dir_node for %s\n", parent_path);
 +	}
 +
 +	list_for_each_entry(child, &dir_node->children_names, list) {
 +		if (strcmp(child->name, name) == 0) {
 +			child_exists = true;
++			NM_DBG("auto_inject_parent: child %s already exists in %s\n", name, parent_path);
 +			break;
 +		}
 +	}
@@ -1415,11 +1679,16 @@ index 000000000..43ca3f0fa
 +		if (child) {
 +			child->name = kstrdup(name, GFP_ATOMIC);
 +			if (!child->name) {
++				NM_ERR("auto_inject_parent: failed to alloc child name %s\n", name);
 +				kfree(child);
 +				goto unlock_out;
 +			}
 +			child->d_type = (type == DT_DIR) ? 4 : 8;
 +			list_add_tail_rcu(&child->list, &dir_node->children_names);
++			NM_INFO("auto_inject_parent: injected %s into %s (type=%s)\n",
++				name, parent_path, (type == DT_DIR) ? "dir" : "file");
++		} else {
++			NM_ERR("auto_inject_parent: failed to alloc child struct for %s\n", name);
 +		}
 +	}
 +
@@ -1432,9 +1701,11 @@ index 000000000..43ca3f0fa
 +	 * This ensures /system/priv-app/MyApp is visible when scanning /system/priv-app
 +	 */
 +	if (!parent_exists_on_disk && strlen(parent_path) > 1) {
++		NM_DBG("auto_inject_parent: recursing for %s\n", parent_path);
 +		nomount_auto_inject_parent_recursive(parent_path, DT_DIR);
 +	}
 +
++	NM_DBG("auto_inject_parent: done for %s\n", v_path);
 +	kfree(path_copy);
 +}
 +
@@ -1491,8 +1762,8 @@ index 000000000..43ca3f0fa
 +
 +	ret = kern_path(r_path, LOOKUP_FOLLOW, &path);
 +	if (ret == 0) {
-+		if (path.dentry && path.dentry->d_inode) {
-+			rule->real_ino = path.dentry->d_inode->i_ino;
++		if (path.dentry && d_backing_inode(path.dentry)) {
++			rule->real_ino = d_backing_inode(path.dentry)->i_ino;
 +			rule->real_dev = path.dentry->d_sb->s_dev;
 +			NM_DBG("add_rule: real_ino=%lu real_dev=%u\n",
 +			       rule->real_ino, rule->real_dev);
@@ -1527,6 +1798,7 @@ index 000000000..43ca3f0fa
 +		rule->is_new = true;
 +	}
 +	nomount_flush_dcache(rule->virtual_path);
++	nomount_force_refresh_all();
 +
 +	NM_INFO("add_rule: success vpath=%s -> rpath=%s\n", v_path, r_path);
 +	return 0;
@@ -2315,8 +2587,8 @@ index 96b3f5e3b..8a7c4d2e1 100644
 +
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +		/* Spoof statfs for NoMount redirected files */
-+		if (!error && path.dentry && path.dentry->d_inode)
-+			nomount_spoof_statfs(path.dentry->d_inode, st);
++		if (!error && path.dentry && d_backing_inode(path.dentry))
++			nomount_spoof_statfs(d_backing_inode(path.dentry), st);
 +#endif
 +
  		path_put(&path);
@@ -2329,8 +2601,8 @@ index 96b3f5e3b..8a7c4d2e1 100644
 +
 +#ifdef CONFIG_FS_DCACHE_PREFETCH
 +		/* Spoof statfs for NoMount redirected files */
-+		if (!error && f.file->f_path.dentry && f.file->f_path.dentry->d_inode)
-+			nomount_spoof_statfs(f.file->f_path.dentry->d_inode, st);
++		if (!error && f.file->f_path.dentry && f.file->f_d_backing_inode(path.dentry))
++			nomount_spoof_statfs(f.file->f_d_backing_inode(path.dentry), st);
 +#endif
 +
  		fdput(f);
