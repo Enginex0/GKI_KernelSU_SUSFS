@@ -1,4 +1,4 @@
-name: Test WildKSU Clean (Zero Patches)
+name: Test Vanilla KSU Clean (Zero Patches)
 
 permissions:
   contents: write
@@ -28,7 +28,7 @@ on:
 
 jobs:
   build-clean:
-    name: "WildKSU-Clean ${{ inputs.kernel_version }}.${{ inputs.sub_level }}"
+    name: "VanillaKSU-Clean ${{ inputs.kernel_version }}.${{ inputs.sub_level }}"
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
@@ -98,15 +98,16 @@ jobs:
           [[ -n "$EXTRACTED" ]] && ACTUAL_SUBLEVEL="$EXTRACTED"
         fi
 
-        ARTIFACT_BASE="${{ inputs.kernel_version }}.$ACTUAL_SUBLEVEL-${{ inputs.android_version }}-${{ inputs.os_patch_level }}-WildKSU-Clean"
+        ARTIFACT_BASE="${{ inputs.kernel_version }}.$ACTUAL_SUBLEVEL-${{ inputs.android_version }}-${{ inputs.os_patch_level }}-VanillaKSU-Clean"
         echo "ACTUAL_SUBLEVEL=$ACTUAL_SUBLEVEL" >> $GITHUB_ENV
         echo "ARTIFACT_BASE=$ARTIFACT_BASE" >> $GITHUB_ENV
         echo "FILE_NAME=$ARTIFACT_BASE" >> $GITHUB_ENV
 
-    - name: Add WildKSU Only
+    - name: Add Vanilla KernelSU Only
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
-        curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/setup.sh" | bash -s wild
+        # Use official KernelSU (no SUSFS dependency)
+        curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
 
     - name: Configure Kernel
       working-directory: ${{ env.KERNEL_ROOT }}
@@ -193,12 +194,12 @@ jobs:
 
     - name: Build Summary
       run: |
-        echo "## WildKSU Clean Build (ZERO PATCHES)" >> $GITHUB_STEP_SUMMARY
+        echo "## Vanilla KernelSU Clean Build (ZERO PATCHES)" >> $GITHUB_STEP_SUMMARY
         echo "| Config | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
         echo "| Kernel | ${{ inputs.kernel_version }}.${{ env.ACTUAL_SUBLEVEL }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Android | ${{ inputs.android_version }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| KSU | WildKSU only |" >> $GITHUB_STEP_SUMMARY
+        echo "| KSU | Vanilla KernelSU (tiann/KernelSU) |" >> $GITHUB_STEP_SUMMARY
         echo "| SUSFS | NO |" >> $GITHUB_STEP_SUMMARY
         echo "| NoMount | NO |" >> $GITHUB_STEP_SUMMARY
         echo "| Any Patches | NO |" >> $GITHUB_STEP_SUMMARY
