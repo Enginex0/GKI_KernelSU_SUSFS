@@ -706,9 +706,6 @@ jobs:
         echo "Injecting readdir hooks..."
         "$NOMOUNT_VFS/patches/inject-readdir-hooks.sh" fs/readdir.c
 
-        echo "Injecting overlayfs hooks..."
-        "$NOMOUNT_VFS/patches/inject-overlayfs-hooks.sh" fs/overlayfs/inode.c
-
         echo "=== All NoMount hooks injected ==="
 
         # Add config option
@@ -720,7 +717,6 @@ jobs:
         grep -q "nomount_spoof_statfs" fs/statfs.c || { echo "FAIL: statfs.c hook missing"; exit 1; }
         grep -q "vfs_dcache_should_hide_map" fs/proc/task_mmu.c || { echo "FAIL: task_mmu.c hook missing"; exit 1; }
         grep -q "vfs_dcache_is_mount_hidden" fs/proc_namespace.c || { echo "FAIL: proc_namespace.c hook missing"; exit 1; }
-        grep -q "nomount_ovl_hook" fs/overlayfs/inode.c || { echo "FAIL: overlayfs/inode.c hook missing"; exit 1; }
         echo "SUCCESS: All hooks validated"
 
         echo "=== NoMount integration complete ==="
