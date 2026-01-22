@@ -142,6 +142,16 @@ jobs:
         cat >> "${{ env.DEFCONFIG }}" << 'EOF'
         CONFIG_KSU=y
         CONFIG_KSU_SUSFS=y
+        CONFIG_KSU_SUSFS_SUS_PATH=y
+        CONFIG_KSU_SUSFS_SUS_MOUNT=y
+        CONFIG_KSU_SUSFS_SUS_KSTAT=y
+        CONFIG_KSU_SUSFS_SUS_MAP=y
+        CONFIG_KSU_SUSFS_SUS_PROC=y
+        CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+        CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+        CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+        CONFIG_KSU_SUSFS_UNICODE_FILTER=y
+        CONFIG_KSU_SUSFS_ENABLE_LOG=y
         EOF
         sed -i 's/check_defconfig//' ./common/build.config.gki
 
