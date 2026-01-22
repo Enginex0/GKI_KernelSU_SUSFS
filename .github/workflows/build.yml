@@ -281,6 +281,14 @@ jobs:
               echo "WildKSU Kbuild patched - KPROBES check now guarded"
             fi
 
+            # Fix SUSFS API compatibility - custom fork renamed CMD constant only
+            SUPERCALLS_FILE="$KERNEL_ROOT/Wild_KSU/kernel/supercalls.c"
+            if [ -f "$SUPERCALLS_FILE" ] && grep -q "CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS" "$SUPERCALLS_FILE"; then
+              echo "Fixing SUSFS CMD constant in supercalls.c..."
+              sed -i 's/CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS/CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS/g' "$SUPERCALLS_FILE"
+              echo "SUSFS CMD constant fix applied"
+            fi
+
             ;;
           Next)
             if [[ -n "${{ inputs.ksu_commit }}" ]]; then
