@@ -109,12 +109,6 @@ jobs:
       run: |
         curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/setup.sh" | bash -s wild
 
-        SUPERCALLS_FILE="$KERNEL_ROOT/Wild_KSU/kernel/supercalls.c"
-        if [ -f "$SUPERCALLS_FILE" ] && grep -q "hide_sus_mnts_for_non_su_procs" "$SUPERCALLS_FILE"; then
-          sed -i 's/CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS/CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS/g' "$SUPERCALLS_FILE"
-          sed -i 's/susfs_set_hide_sus_mnts_for_non_su_procs/susfs_set_hide_sus_mnts_for_all_procs/g' "$SUPERCALLS_FILE"
-        fi
-
         EXTRAS_FILE="$KERNEL_ROOT/Wild_KSU/kernel/extras.c"
         if [ -f "$EXTRAS_FILE" ]; then
           sed -i '/^static atomic_t disable_spoof/a\\n// Exported for SUSFS coordination\nbool ksu_avc_spoof_active = false;\nEXPORT_SYMBOL(ksu_avc_spoof_active);' "$EXTRAS_FILE"

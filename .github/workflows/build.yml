@@ -281,18 +281,6 @@ jobs:
               echo "WildKSU Kbuild patched - KPROBES check now guarded"
             fi
 
-            # Fix SUSFS API compatibility - WildKSU calls non_su_procs but SUSFS only has all_procs
-            # This happens when WildKSU updates to "latest susfs" but uses functions not in our SUSFS version
-            SUPERCALLS_FILE="$KERNEL_ROOT/Wild_KSU/kernel/supercalls.c"
-            if [ -f "$SUPERCALLS_FILE" ]; then
-              if grep -q "hide_sus_mnts_for_non_su_procs" "$SUPERCALLS_FILE"; then
-                echo "Fixing SUSFS API compatibility in supercalls.c..."
-                # Replace non_su_procs variant with all_procs variant (functionally equivalent for our use)
-                sed -i 's/CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS/CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS/g' "$SUPERCALLS_FILE"
-                sed -i 's/susfs_set_hide_sus_mnts_for_non_su_procs/susfs_set_hide_sus_mnts_for_all_procs/g' "$SUPERCALLS_FILE"
-                echo "SUSFS API compatibility fix applied"
-              fi
-            fi
             ;;
           Next)
             if [[ -n "${{ inputs.ksu_commit }}" ]]; then
