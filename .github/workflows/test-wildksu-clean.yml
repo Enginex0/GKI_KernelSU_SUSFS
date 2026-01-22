@@ -104,10 +104,17 @@ jobs:
       working-directory: ${{ env.KERNEL_ROOT }}
       run: |
         curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/setup.sh" | bash -s wild
+
         SUPERCALLS_FILE="$KERNEL_ROOT/Wild_KSU/kernel/supercalls.c"
         if [ -f "$SUPERCALLS_FILE" ] && grep -q "hide_sus_mnts_for_non_su_procs" "$SUPERCALLS_FILE"; then
           sed -i 's/CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS/CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS/g' "$SUPERCALLS_FILE"
           sed -i 's/susfs_set_hide_sus_mnts_for_non_su_procs/susfs_set_hide_sus_mnts_for_all_procs/g' "$SUPERCALLS_FILE"
+        fi
+
+        KSUD_FILE="$KERNEL_ROOT/Wild_KSU/kernel/ksud.c"
+        if [ -f "$KSUD_FILE" ] && ! grep -q "ksu_handle_sys_newfstatat" "$KSUD_FILE"; then
+          echo "" >> "$KSUD_FILE"
+          echo "void ksu_handle_sys_newfstatat(int fd, loff_t *kstat_size_ptr) { }" >> "$KSUD_FILE"
         fi
 
     - name: Apply SUSFS
