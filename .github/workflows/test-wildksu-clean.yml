@@ -1,0 +1,204 @@
+name: Test WildKSU Clean (Zero Patches)
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      android_version:
+        description: "Android Version"
+        type: choice
+        options: [android12, android13, android14, android15]
+        default: android12
+      kernel_version:
+        description: "Kernel Version"
+        type: choice
+        options: ["5.10", "5.15", "6.1", "6.6"]
+        default: "5.10"
+      sub_level:
+        description: "Sub Level"
+        type: string
+        default: "209"
+      os_patch_level:
+        description: "OS Patch Level (YYYY-MM)"
+        type: string
+        default: "2024-05"
+
+jobs:
+  build-clean:
+    name: "WildKSU-Clean ${{ inputs.kernel_version }}.${{ inputs.sub_level }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Free Disk Space
+      uses: endersonmenezes/free-disk-space@v3
+      with:
+        remove_android: true
+        remove_dotnet: true
+        remove_haskell: true
+        remove_tool_cache: true
+        remove_swap: true
+        remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
+        remove_packages_one_command: true
+        remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/lib/node_modules /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
+        rm_cmd: "rmz"
+        rmz_version: "3.1.1"
+        testing: false
+
+    - name: Setup Build Environment
+      run: |
+        CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
+        KERNEL_ROOT="$GITHUB_WORKSPACE/$CONFIG"
+        mkdir -p "$KERNEL_ROOT"
+
+        cat >> $GITHUB_ENV << EOF
+        DEFCONFIG=$KERNEL_ROOT/common/arch/arm64/configs/gki_defconfig
+        CONFIG=$CONFIG
+        KERNEL_ROOT=$KERNEL_ROOT
+        ANYKERNEL3=$GITHUB_WORKSPACE/AnyKernel3
+        REPO=$GITHUB_WORKSPACE/git-repo/repo
+        EOF
+
+        mkdir -p "$GITHUB_WORKSPACE/git-repo"
+        curl -L https://storage.googleapis.com/git-repo-downloads/repo -o "$GITHUB_WORKSPACE/git-repo/repo"
+        chmod 0755 "$GITHUB_WORKSPACE/git-repo/repo"
+        echo "$GITHUB_WORKSPACE/git-repo" >> "$GITHUB_PATH"
+
+    - name: Clone AnyKernel3
+      run: |
+        git clone https://github.com/WildKernels/AnyKernel3.git -b "gki-2.0"
+        rm -rf AnyKernel3/.git
+
+    - name: Initialize and Sync Kernel Source
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        FORMATTED_BRANCH="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.os_patch_level }}"
+
+        repo init -u https://android.googlesource.com/kernel/manifest -b common-${FORMATTED_BRANCH} --repo-rev=v2.16 --depth=1
+
+        REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH})
+        DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
+        if grep -q deprecated <<< $REMOTE_BRANCH; then
+          sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
+        fi
+
+        repo --trace sync -c -j$(nproc --all) --fail-fast --no-tags --force-sync --no-clone-bundle
+
+    - name: Extract Sublevel
+      run: |
+        ACTUAL_SUBLEVEL="${{ inputs.sub_level }}"
+        if [[ -f "$KERNEL_ROOT/common/Makefile" ]]; then
+          EXTRACTED=$(grep '^SUBLEVEL = ' "$KERNEL_ROOT/common/Makefile" | awk '{print $3}')
+          [[ -n "$EXTRACTED" ]] && ACTUAL_SUBLEVEL="$EXTRACTED"
+        fi
+
+        ARTIFACT_BASE="${{ inputs.kernel_version }}.$ACTUAL_SUBLEVEL-${{ inputs.android_version }}-${{ inputs.os_patch_level }}-WildKSU-Clean"
+        echo "ACTUAL_SUBLEVEL=$ACTUAL_SUBLEVEL" >> $GITHUB_ENV
+        echo "ARTIFACT_BASE=$ARTIFACT_BASE" >> $GITHUB_ENV
+        echo "FILE_NAME=$ARTIFACT_BASE" >> $GITHUB_ENV
+
+    - name: Add WildKSU Only
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/setup.sh" | bash -s wild
+
+    - name: Configure Kernel
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        echo "CONFIG_KSU=y" >> "${{ env.DEFCONFIG }}"
+
+        if [[ "${{ inputs.kernel_version }}" == "6.12" ]]; then
+          sed -i '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' common/BUILD.bazel
+        else
+          sed -i 's/check_defconfig//' ./common/build.config.gki
+        fi
+
+    - name: Clean Build Flags
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        if [ -f "build/build.sh" ]; then
+          sed -i 's/-dirty//' ./common/scripts/setlocalversion
+        else
+          sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
+          sed -i 's/-dirty//' ./common/scripts/setlocalversion
+          rm -rf ./common/android/abi_gki_protected_exports_*
+          perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel
+        fi
+
+        cd $KERNEL_ROOT/common
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add .
+        git commit -m "Add KernelSU" || true
+
+    - name: Set Stock Build Identity
+      working-directory: ${{ env.KERNEL_ROOT }}/common
+      run: |
+        STOCK_BUILD_USER="build-user"
+        STOCK_BUILD_HOST="build-host"
+        PATCH_YEAR=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f1)
+        PATCH_MONTH=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f2)
+        STOCK_DATE="${PATCH_YEAR}-${PATCH_MONTH}-15 12:00:00 UTC"
+        STOCK_TIMESTAMP=$(date -d "$STOCK_DATE" "+%a %b %d %H:%M:%S UTC %Y" 2>/dev/null || date -u "+%a %b %d %H:%M:%S UTC %Y")
+        STOCK_VERSION_STRING="#1 SMP PREEMPT $STOCK_TIMESTAMP"
+
+        if [ -f "scripts/mkcompile_h" ]; then
+          sed -i "s|UTS_VERSION=.*|UTS_VERSION=\"$STOCK_VERSION_STRING\"|" scripts/mkcompile_h
+          if grep -q "LINUX_COMPILE_BY=" scripts/mkcompile_h; then
+            sed -i "s|LINUX_COMPILE_BY=.*|LINUX_COMPILE_BY=\"$STOCK_BUILD_USER\"|" scripts/mkcompile_h
+            sed -i "s|LINUX_COMPILE_HOST=.*|LINUX_COMPILE_HOST=\"$STOCK_BUILD_HOST\"|" scripts/mkcompile_h
+          fi
+        fi
+
+        if [ -f "init/Makefile" ] && grep -q "build-timestamp" init/Makefile; then
+          STOCK_TIMESTAMP_ONLY=$(echo "$STOCK_VERSION_STRING" | sed 's/#1 SMP PREEMPT //')
+          sed -i "s|build-timestamp = .*|build-timestamp = \"$STOCK_TIMESTAMP_ONLY\"|" init/Makefile
+        fi
+
+        echo "KBUILD_BUILD_TIMESTAMP=$STOCK_TIMESTAMP" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_USER=$STOCK_BUILD_USER" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_HOST=$STOCK_BUILD_HOST" >> $GITHUB_ENV
+
+    - name: Build Kernel
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        if [ -f "build/build.sh" ]; then
+          LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
+        else
+          tools/bazel build --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist || exit 1
+        fi
+
+    - name: Prepare AnyKernel3 Zip
+      run: |
+        if [ -f "$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" ]; then
+          cp "$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" "$ANYKERNEL3/Image"
+        elif [ -f "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image" ]; then
+          cp "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image" "$ANYKERNEL3/Image"
+        else
+          exit 1
+        fi
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.FILE_NAME }}-AnyKernel3
+        path: ./AnyKernel3/**
+        compression-level: 9
+
+    - name: Build Summary
+      run: |
+        echo "## WildKSU Clean Build (ZERO PATCHES)" >> $GITHUB_STEP_SUMMARY
+        echo "| Config | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Kernel | ${{ inputs.kernel_version }}.${{ env.ACTUAL_SUBLEVEL }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Android | ${{ inputs.android_version }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| KSU | WildKSU only |" >> $GITHUB_STEP_SUMMARY
+        echo "| SUSFS | NO |" >> $GITHUB_STEP_SUMMARY
+        echo "| NoMount | NO |" >> $GITHUB_STEP_SUMMARY
+        echo "| Any Patches | NO |" >> $GITHUB_STEP_SUMMARY
