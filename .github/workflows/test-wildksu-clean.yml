@@ -25,6 +25,10 @@ on:
         description: "OS Patch Level (YYYY-MM)"
         type: string
         default: "2024-05"
+      device_codename:
+        description: "Device Codename (for stock kernel spoofing)"
+        type: string
+        default: "lake"
 
 jobs:
   build:
@@ -158,23 +162,41 @@ jobs:
         git add .
         git commit -m "Apply patches" || true
 
-    - name: Set Stock Build Identity
+    - name: Set Stock Build Identity (device-profiles.json)
       working-directory: ${{ env.KERNEL_ROOT }}/common
       run: |
-        STOCK_BUILD_USER="build-user"
-        STOCK_BUILD_HOST="build-host"
-        PATCH_YEAR=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f1)
-        PATCH_MONTH=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f2)
-        STOCK_DATE="${PATCH_YEAR}-${PATCH_MONTH}-15 12:00:00 UTC"
-        STOCK_TIMESTAMP=$(date -d "$STOCK_DATE" "+%a %b %d %H:%M:%S UTC %Y")
-        STOCK_VERSION_STRING="#1 SMP PREEMPT $STOCK_TIMESTAMP"
-        if [ -f "scripts/mkcompile_h" ]; then
+        DEVICE_CODENAME="${{ inputs.device_codename }}"
+        PROFILE_JSON="$GITHUB_WORKSPACE/device-profiles.json"
+
+        if [ ! -f "$PROFILE_JSON" ]; then
+          echo "ERROR: device-profiles.json not found"
+          exit 1
+        fi
+
+        STOCK_RELEASE=$(jq -r ".devices[\"$DEVICE_CODENAME\"].stock_kernel.release // \"\"" "$PROFILE_JSON")
+        STOCK_VERSION_STRING=$(jq -r ".devices[\"$DEVICE_CODENAME\"].stock_kernel.version_string // \"\"" "$PROFILE_JSON")
+        STOCK_BUILD_USER=$(jq -r ".devices[\"$DEVICE_CODENAME\"].stock_kernel.build_user // \"build-user\"" "$PROFILE_JSON")
+        STOCK_BUILD_HOST=$(jq -r ".devices[\"$DEVICE_CODENAME\"].stock_kernel.build_host // \"build-host\"" "$PROFILE_JSON")
+
+        echo "Stock release: $STOCK_RELEASE"
+        echo "Stock version: $STOCK_VERSION_STRING"
+
+        if [ -n "$STOCK_RELEASE" ] && [ -f "scripts/setlocalversion" ]; then
+          cp scripts/setlocalversion scripts/setlocalversion.orig
+          printf '#!/bin/sh\necho "%s"\n' "$STOCK_RELEASE" > scripts/setlocalversion
+          chmod +x scripts/setlocalversion
+          echo "setlocalversion patched to return: $STOCK_RELEASE"
+        fi
+
+        if [ -f "scripts/mkcompile_h" ] && [ -n "$STOCK_VERSION_STRING" ]; then
           sed -i "s|UTS_VERSION=.*|UTS_VERSION=\"$STOCK_VERSION_STRING\"|" scripts/mkcompile_h
           if grep -q "LINUX_COMPILE_BY=" scripts/mkcompile_h; then
             sed -i "s|LINUX_COMPILE_BY=.*|LINUX_COMPILE_BY=\"$STOCK_BUILD_USER\"|" scripts/mkcompile_h
             sed -i "s|LINUX_COMPILE_HOST=.*|LINUX_COMPILE_HOST=\"$STOCK_BUILD_HOST\"|" scripts/mkcompile_h
           fi
         fi
+
+        STOCK_TIMESTAMP=$(echo "$STOCK_VERSION_STRING" | sed 's/#1 SMP PREEMPT //')
         echo "KBUILD_BUILD_TIMESTAMP=$STOCK_TIMESTAMP" >> $GITHUB_ENV
         echo "KBUILD_BUILD_USER=$STOCK_BUILD_USER" >> $GITHUB_ENV
         echo "KBUILD_BUILD_HOST=$STOCK_BUILD_HOST" >> $GITHUB_ENV
@@ -205,13 +227,14 @@ jobs:
 
     - name: Build Summary
       run: |
-        echo "## WildKSU + SUSFS Only" >> $GITHUB_STEP_SUMMARY
+        echo "## WildKSU + SUSFS + device-profiles.json Spoofing" >> $GITHUB_STEP_SUMMARY
         echo "| Config | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
         echo "| Kernel | ${{ inputs.kernel_version }}.${{ env.ACTUAL_SUBLEVEL }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Android | ${{ inputs.android_version }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Device | ${{ inputs.device_codename }} |" >> $GITHUB_STEP_SUMMARY
         echo "| KSU | WildKSU |" >> $GITHUB_STEP_SUMMARY
         echo "| SUSFS | Yes |" >> $GITHUB_STEP_SUMMARY
+        echo "| device-profiles.json | Yes |" >> $GITHUB_STEP_SUMMARY
         echo "| NoMount | No |" >> $GITHUB_STEP_SUMMARY
         echo "| LZ4/ZRAM | No |" >> $GITHUB_STEP_SUMMARY
-        echo "| hide_stuff | No |" >> $GITHUB_STEP_SUMMARY
