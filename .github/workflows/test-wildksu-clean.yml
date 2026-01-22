@@ -115,10 +115,30 @@ jobs:
           sed -i 's/susfs_set_hide_sus_mnts_for_non_su_procs/susfs_set_hide_sus_mnts_for_all_procs/g' "$SUPERCALLS_FILE"
         fi
 
+        EXTRAS_FILE="$KERNEL_ROOT/Wild_KSU/kernel/extras.c"
+        if [ -f "$EXTRAS_FILE" ]; then
+          sed -i '/^static atomic_t disable_spoof/a\\n// Exported for SUSFS coordination\nbool ksu_avc_spoof_active = false;\nEXPORT_SYMBOL(ksu_avc_spoof_active);' "$EXTRAS_FILE"
+          sed -i '/atomic_set(\&disable_spoof, 0);/a\	ksu_avc_spoof_active = true;' "$EXTRAS_FILE"
+          sed -i '/atomic_set(\&disable_spoof, 1);/a\	ksu_avc_spoof_active = false;' "$EXTRAS_FILE"
+          sed -i 's/#ifndef CONFIG_KSU_SUSFS/\/\/ SUSFS guard removed/g' "$EXTRAS_FILE"
+          sed -i 's/#endif \/\/ CONFIG_KSU_SUSFS/\/\/ end SUSFS guard/g' "$EXTRAS_FILE"
+        fi
+
         KSUD_FILE="$KERNEL_ROOT/Wild_KSU/kernel/ksud.c"
-        if [ -f "$KSUD_FILE" ] && ! grep -q "ksu_handle_sys_newfstatat" "$KSUD_FILE"; then
-          echo "" >> "$KSUD_FILE"
-          echo "void ksu_handle_sys_newfstatat(int fd, loff_t *kstat_size_ptr) { }" >> "$KSUD_FILE"
+        if [ -f "$KSUD_FILE" ]; then
+          if ! grep -q "ksu_handle_sys_newfstatat" "$KSUD_FILE"; then
+            echo "" >> "$KSUD_FILE"
+            echo "void ksu_handle_sys_newfstatat(int fd, loff_t *kstat_size_ptr) { }" >> "$KSUD_FILE"
+          fi
+          awk '
+          /track_throne\(true\);/ {
+            print
+            print "\tksu_avc_spoof_late_init();"
+            getline; getline; getline
+            next
+          }
+          {print}
+          ' "$KSUD_FILE" > "$KSUD_FILE.tmp" && mv "$KSUD_FILE.tmp" "$KSUD_FILE"
         fi
 
     - name: Apply SUSFS
