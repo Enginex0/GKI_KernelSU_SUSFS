@@ -1,0 +1,337 @@
+name: Test WildKSU Minimal (No Patches)
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      android_version:
+        description: "Android Version"
+        type: choice
+        options: [android12, android13, android14, android15]
+        default: android12
+      kernel_version:
+        description: "Kernel Version"
+        type: choice
+        options: ["5.10", "5.15", "6.1", "6.6"]
+        default: "5.10"
+      sub_level:
+        description: "Sub Level"
+        type: string
+        default: "209"
+      os_patch_level:
+        description: "OS Patch Level (YYYY-MM)"
+        type: string
+        default: "2024-05"
+
+jobs:
+  build-minimal:
+    name: "WildKSU-Minimal ${{ inputs.kernel_version }}.${{ inputs.sub_level }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Free Disk Space
+      uses: endersonmenezes/free-disk-space@v3
+      with:
+        remove_android: true
+        remove_dotnet: true
+        remove_haskell: true
+        remove_tool_cache: true
+        remove_swap: true
+        remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
+        remove_packages_one_command: true
+        remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/lib/node_modules /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
+        rm_cmd: "rmz"
+        rmz_version: "3.1.1"
+        testing: false
+
+    - name: Setup Build Environment
+      run: |
+        CONFIG="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}"
+        KERNEL_ROOT="$GITHUB_WORKSPACE/$CONFIG"
+        mkdir -p "$KERNEL_ROOT"
+
+        cat >> $GITHUB_ENV << EOF
+        DEFCONFIG=$KERNEL_ROOT/common/arch/arm64/configs/gki_defconfig
+        CONFIG=$CONFIG
+        KERNEL_ROOT=$KERNEL_ROOT
+        ANYKERNEL3=$GITHUB_WORKSPACE/AnyKernel3
+        REPO=$GITHUB_WORKSPACE/git-repo/repo
+        SUSFS4KSU=$GITHUB_WORKSPACE/susfs4ksu
+        EOF
+
+        mkdir -p "$GITHUB_WORKSPACE/git-repo"
+        curl -L https://storage.googleapis.com/git-repo-downloads/repo -o "$GITHUB_WORKSPACE/git-repo/repo"
+        chmod 0755 "$GITHUB_WORKSPACE/git-repo/repo"
+        echo "$GITHUB_WORKSPACE/git-repo" >> "$GITHUB_PATH"
+
+    - name: Clone AnyKernel3
+      run: |
+        git clone https://github.com/WildKernels/AnyKernel3.git -b "gki-2.0"
+        rm -rf AnyKernel3/.git
+
+    - name: Initialize and Sync Kernel Source
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        FORMATTED_BRANCH="${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.os_patch_level }}"
+
+        repo init -u https://android.googlesource.com/kernel/manifest -b common-${FORMATTED_BRANCH} --repo-rev=v2.16 --depth=1
+
+        REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH})
+        DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
+        if grep -q deprecated <<< $REMOTE_BRANCH; then
+          sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
+        fi
+
+        repo --trace sync -c -j$(nproc --all) --fail-fast --no-tags --force-sync --no-clone-bundle
+
+    - name: Extract Sublevel
+      run: |
+        ACTUAL_SUBLEVEL="${{ inputs.sub_level }}"
+        if [[ -f "$KERNEL_ROOT/common/Makefile" ]]; then
+          EXTRACTED=$(grep '^SUBLEVEL = ' "$KERNEL_ROOT/common/Makefile" | awk '{print $3}')
+          [[ -n "$EXTRACTED" ]] && ACTUAL_SUBLEVEL="$EXTRACTED"
+        fi
+
+        ARTIFACT_BASE="${{ inputs.kernel_version }}.$ACTUAL_SUBLEVEL-${{ inputs.android_version }}-${{ inputs.os_patch_level }}-WildKSU-Minimal"
+        echo "ACTUAL_SUBLEVEL=$ACTUAL_SUBLEVEL" >> $GITHUB_ENV
+        echo "ARTIFACT_BASE=$ARTIFACT_BASE" >> $GITHUB_ENV
+        echo "FILE_NAME=$ARTIFACT_BASE" >> $GITHUB_ENV
+
+    - name: Apply glibc 2.38 Compatibility Fix
+      run: |
+        if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 186 ]] ||
+           [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && $ACTUAL_SUBLEVEL -le 119 ]] ||
+           [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "5.15" && $ACTUAL_SUBLEVEL -le 110 ]] ||
+           [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "6.1" && $ACTUAL_SUBLEVEL -le 43 ]]; then
+          GLIBC_VERSION=$(ldd --version 2>/dev/null | head -n 1 | awk '{print $NF}')
+          if [ "$(printf '%s\n' "2.38" "$GLIBC_VERSION" | sort -V | head -n1)" = "2.38" ]; then
+            cd "$KERNEL_ROOT/common"
+            sed -i '/\$(Q)\$(MAKE) -C \$(SUBCMD_SRC) OUTPUT=\$(abspath \$(dir \$@))\/ \$(abspath \$@)/s//$(Q)$(MAKE) -C $(SUBCMD_SRC) EXTRA_CFLAGS="$(CFLAGS)" OUTPUT=$(abspath $(dir $@))\/ $(abspath $@)/' tools/bpf/resolve_btfids/Makefile 2>/dev/null || true
+            if [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.10" && $ACTUAL_SUBLEVEL -le 186 ]] ||
+               [[ "${{ inputs.android_version }}" == "android13" && "${{ inputs.kernel_version }}" == "5.15" && $ACTUAL_SUBLEVEL -le 119 ]] ||
+               [[ "${{ inputs.android_version }}" == "android14" && "${{ inputs.kernel_version }}" == "5.15" && $ACTUAL_SUBLEVEL -le 110 ]]; then
+              sed -i '/char \*buf = NULL;/a int i;' tools/lib/subcmd/parse-options.c 2>/dev/null || true
+              sed -i 's/for (int i = 0; subcommands\[i\]; i++) {/for (i = 0; subcommands[i]; i++) {/' tools/lib/subcmd/parse-options.c 2>/dev/null || true
+              sed -i '/if (subcommands) {/a int i;' tools/lib/subcmd/parse-options.c 2>/dev/null || true
+              sed -i 's/for (int i = 0; subcommands\[i\]; i++)/for (i = 0; subcommands[i]; i++)/' tools/lib/subcmd/parse-options.c 2>/dev/null || true
+            fi
+          fi
+        fi
+
+    - name: Fix Less Than 6.6.50 Builds
+      if: inputs.android_version == 'android15' && inputs.kernel_version == '6.6'
+      working-directory: ${{ env.KERNEL_ROOT }}/common
+      run: |
+        if ! grep -qxF '#include <trace/hooks/fs.h>' ./fs/namespace.c; then
+            sed -i '/#include <trace\/hooks\/blk.h>/a #include <trace\/hooks\/fs.h>' ./fs/namespace.c
+        fi
+
+    - name: Add WildKSU (using setup.sh)
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        echo "=== Adding WildKSU ==="
+        curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/setup.sh" | bash -s wild
+
+        # Patch WildKSU extras.c for AVC spoof coordination with SUSFS
+        EXTRAS_FILE="$KERNEL_ROOT/Wild_KSU/kernel/extras.c"
+        if [ -f "$EXTRAS_FILE" ]; then
+          echo "Patching WildKSU extras.c for AVC spoof coordination..."
+
+          sed -i '/^static atomic_t disable_spoof/a\\n// Exported for SUSFS coordination\nbool ksu_avc_spoof_active = false;\nEXPORT_SYMBOL(ksu_avc_spoof_active);' "$EXTRAS_FILE"
+          sed -i '/atomic_set(\&disable_spoof, 0);/a\	ksu_avc_spoof_active = true;' "$EXTRAS_FILE"
+          sed -i '/atomic_set(\&disable_spoof, 1);/a\	ksu_avc_spoof_active = false;' "$EXTRAS_FILE"
+          sed -i 's/#ifndef CONFIG_KSU_SUSFS/\/\/ SUSFS guard removed/g' "$EXTRAS_FILE"
+          sed -i 's/#endif \/\/ CONFIG_KSU_SUSFS/\/\/ end SUSFS guard/g' "$EXTRAS_FILE"
+
+          echo "WildKSU extras.c patched"
+        fi
+
+        # Patch WildKSU ksud.c
+        KSUD_FILE="$KERNEL_ROOT/Wild_KSU/kernel/ksud.c"
+        if [ -f "$KSUD_FILE" ]; then
+          echo "Patching WildKSU ksud.c..."
+
+          awk '
+          /track_throne\(true\);/ {
+            print
+            print "\tksu_avc_spoof_late_init();"
+            getline
+            getline
+            getline
+            next
+          }
+          {print}
+          ' "$KSUD_FILE" > "$KSUD_FILE.tmp" && mv "$KSUD_FILE.tmp" "$KSUD_FILE"
+
+          if ! grep -q "ksu_handle_sys_newfstatat" "$KSUD_FILE"; then
+            awk '/void ksu_handle_vfs_fstat/{found=1} found && /^}/{print; print "void ksu_handle_sys_newfstatat(int fd, loff_t *kstat_size_ptr) { }"; found=0; next}1' "$KSUD_FILE" > "$KSUD_FILE.tmp" && mv "$KSUD_FILE.tmp" "$KSUD_FILE"
+          fi
+          echo "WildKSU ksud.c patched"
+        fi
+
+        # Fix SUSFS API compatibility
+        SUPERCALLS_FILE="$KERNEL_ROOT/Wild_KSU/kernel/supercalls.c"
+        if [ -f "$SUPERCALLS_FILE" ] && grep -q "hide_sus_mnts_for_non_su_procs" "$SUPERCALLS_FILE"; then
+          sed -i 's/CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS/CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS/g' "$SUPERCALLS_FILE"
+          sed -i 's/susfs_set_hide_sus_mnts_for_non_su_procs/susfs_set_hide_sus_mnts_for_all_procs/g' "$SUPERCALLS_FILE"
+        fi
+
+        echo "=== WildKSU added ==="
+
+    - name: Apply SUSFS Kernel Patches
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        SUSFS_BRANCH="gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}"
+        git clone https://github.com/Enginex0/susfs4ksu.git -b "$SUSFS_BRANCH" "$SUSFS4KSU"
+
+        cd "$KERNEL_ROOT/common"
+        cp "$SUSFS4KSU/kernel_patches/fs/"* ./fs/
+        cp "$SUSFS4KSU/kernel_patches/include/linux/"* ./include/linux/
+
+        SUSFS_KERNEL_PATCH="$SUSFS4KSU/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
+        patch -p1 < "$SUSFS_KERNEL_PATCH" || true
+
+        # Unicode filter: use sed injection (same as ReSukiSU)
+        cat > /tmp/inject_unicode_filter.sh << 'SCRIPT'
+        #!/bin/bash
+        cd "$1"
+
+        if ! grep -q "CONFIG_KSU_SUSFS_UNICODE_FILTER" ./fs/open.c; then
+          sed -i '/#include "internal.h"/a #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\n#include <linux\/susfs.h>\n#endif' ./fs/open.c
+        fi
+
+        if ! grep -q "susfs_check_unicode_bypass" ./fs/open.c; then
+          sed -i '/^static int do_faccessat/,/^{/ { /^{/a #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\n\tif (susfs_check_unicode_bypass(filename)) { return -ENOENT; }\n#endif
+          }' ./fs/open.c
+
+          sed -i '/^static long do_sys_openat2/,/struct filename \*tmp;/ { /struct filename \*tmp;/a #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\n\tif (susfs_check_unicode_bypass(filename)) { return -ENOENT; }\n#endif
+          }' ./fs/open.c
+        fi
+
+        if ! grep -q "CONFIG_KSU_SUSFS_UNICODE_FILTER" ./fs/stat.c; then
+          sed -i '/#include "internal.h"/i #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\n#include <linux\/susfs.h>\n#endif' ./fs/stat.c
+        fi
+
+        if ! grep -q "susfs_check_unicode_bypass" ./fs/stat.c; then
+          sed -i '/^int vfs_fstatat/,/^{/ { /^{/a #ifdef CONFIG_KSU_SUSFS_UNICODE_FILTER\n\tif (filename \&\& susfs_check_unicode_bypass(filename)) { return -ENOENT; }\n#endif
+          }' ./fs/stat.c
+        fi
+        SCRIPT
+        chmod +x /tmp/inject_unicode_filter.sh
+        bash /tmp/inject_unicode_filter.sh "$KERNEL_ROOT/common"
+
+        if [[ "${{ inputs.android_version }}" == "android12" && "${{ inputs.kernel_version }}" == "5.10" ]]; then
+          if [[ "$ACTUAL_SUBLEVEL" -le 209 ]]; then
+            sed -i -e 's/goto show_pad;/return 0;/' ./fs/proc/task_mmu.c
+          fi
+        fi
+
+    - name: Configure Kernel
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        cat >> "${{ env.DEFCONFIG }}" << 'EOF'
+        CONFIG_KSU=y
+        CONFIG_KSU_SUSFS=y
+        CONFIG_KSU_SUSFS_UNICODE_FILTER=y
+        EOF
+
+        if [[ "${{ inputs.kernel_version }}" == "6.12" ]]; then
+          sed -i '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' common/BUILD.bazel
+        else
+          sed -i 's/check_defconfig//' ./common/build.config.gki
+        fi
+
+    - name: Clean Build Flags
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        # SAME AS RESUKISU - only remove dirty flags, do NOT replace setlocalversion
+        if [ -f "build/build.sh" ]; then
+          sed -i 's/-dirty//' ./common/scripts/setlocalversion
+        else
+          sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
+          sed -i 's/-dirty//' ./common/scripts/setlocalversion
+          rm -rf ./common/android/abi_gki_protected_exports_*
+          perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel
+        fi
+
+        cd $KERNEL_ROOT/common
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add .
+        git commit -m "Apply patches" || true
+
+    - name: Set Stock Build Identity
+      working-directory: ${{ env.KERNEL_ROOT }}/common
+      run: |
+        # SAME AS RESUKISU - generate stock identity from patch level, no device-profiles.json
+        STOCK_BUILD_USER="build-user"
+        STOCK_BUILD_HOST="build-host"
+        PATCH_YEAR=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f1)
+        PATCH_MONTH=$(echo "${{ inputs.os_patch_level }}" | cut -d'-' -f2)
+        STOCK_DATE="${PATCH_YEAR}-${PATCH_MONTH}-15 12:00:00 UTC"
+        STOCK_TIMESTAMP=$(date -d "$STOCK_DATE" "+%a %b %d %H:%M:%S UTC %Y" 2>/dev/null || date -u "+%a %b %d %H:%M:%S UTC %Y")
+        STOCK_VERSION_STRING="#1 SMP PREEMPT $STOCK_TIMESTAMP"
+
+        if [ -f "scripts/mkcompile_h" ]; then
+          sed -i "s|UTS_VERSION=.*|UTS_VERSION=\"$STOCK_VERSION_STRING\"|" scripts/mkcompile_h
+          if grep -q "LINUX_COMPILE_BY=" scripts/mkcompile_h; then
+            sed -i "s|LINUX_COMPILE_BY=.*|LINUX_COMPILE_BY=\"$STOCK_BUILD_USER\"|" scripts/mkcompile_h
+            sed -i "s|LINUX_COMPILE_HOST=.*|LINUX_COMPILE_HOST=\"$STOCK_BUILD_HOST\"|" scripts/mkcompile_h
+          fi
+        fi
+
+        if [ -f "init/Makefile" ] && grep -q "build-timestamp" init/Makefile; then
+          sed -i "s|build-timestamp = .*|build-timestamp = \"$STOCK_TIMESTAMP\"|" init/Makefile
+        fi
+
+        echo "KBUILD_BUILD_TIMESTAMP=$STOCK_TIMESTAMP" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_USER=$STOCK_BUILD_USER" >> $GITHUB_ENV
+        echo "KBUILD_BUILD_HOST=$STOCK_BUILD_HOST" >> $GITHUB_ENV
+
+    - name: Build Kernel
+      working-directory: ${{ env.KERNEL_ROOT }}
+      run: |
+        if [ -f "build/build.sh" ]; then
+          LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
+        else
+          tools/bazel build --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist || exit 1
+        fi
+
+    - name: Prepare AnyKernel3 Zip
+      run: |
+        if [ -f "$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" ]; then
+          cp "$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" "$ANYKERNEL3/Image"
+        elif [ -f "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image" ]; then
+          cp "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image" "$ANYKERNEL3/Image"
+        else
+          find $KERNEL_ROOT -name "Image" -type f 2>/dev/null || true
+          exit 1
+        fi
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.FILE_NAME }}-AnyKernel3
+        path: ./AnyKernel3/**
+        compression-level: 9
+
+    - name: Build Summary
+      run: |
+        echo "## WildKSU Minimal Build (No Extra Patches)" >> $GITHUB_STEP_SUMMARY
+        echo "| Config | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Kernel | ${{ inputs.kernel_version }}.${{ env.ACTUAL_SUBLEVEL }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Android | ${{ inputs.android_version }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| KSU | WildKSU (wild branch) |" >> $GITHUB_STEP_SUMMARY
+        echo "| SUSFS | Enginex0/susfs4ksu |" >> $GITHUB_STEP_SUMMARY
+        echo "| NoMount | DISABLED |" >> $GITHUB_STEP_SUMMARY
+        echo "| hide_stuff | DISABLED |" >> $GITHUB_STEP_SUMMARY
+        echo "| LZ4/ZRAM | DISABLED |" >> $GITHUB_STEP_SUMMARY
+        echo "| Stock Identity | Generated from patch level (ReSukiSU method) |" >> $GITHUB_STEP_SUMMARY
