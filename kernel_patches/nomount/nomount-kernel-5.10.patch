@@ -131,7 +131,7 @@ new file mode 100644
 index 000000000..43ca3f0fa
 --- /dev/null
 +++ b/fs/vfs_dcache.c
-@@ -0,0 +1,2191 @@
+@@ -0,0 +1,2203 @@
 +#include <linux/module.h>
 +#include <linux/kernel.h>
 +#include <linux/init.h>
@@ -2551,7 +2551,7 @@ index 91d3e68bc..f8e2c9a01 100644
  static const char *
  strcmp_prefix(const char *a, const char *a_prefix)
  {
-@@ -330,6 +353,24 @@ vfs_listxattr(struct dentry *dentry, char *list, size_t size)
+@@ -330,6 +353,25 @@ vfs_listxattr(struct dentry *dentry, char *list, size_t size)
  {
  	struct inode *inode = d_inode(dentry);
  	ssize_t error;

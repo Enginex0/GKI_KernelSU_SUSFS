@@ -717,14 +717,6 @@ jobs:
 
         echo "=== NoMount integration complete ==="
 
-    - name: Apply Hide Stuff Patch
-      working-directory: ${{ env.KERNEL_ROOT }}/common
-      run: |
-        echo "=== 69_hide_stuff.patch SKIPPED ==="
-        echo "All hide_stuff functionality is now integrated into NoMount kernel patch"
-        echo "  - task_mmu.c: lineage path spoofing + jit-zygote-cache hiding"
-        echo "  - base.c: map_files lineage spoofing (via inject-base-hide-stuff.sh)"
-
     - name: Upgrade LZ4 to v1.10.0 with ARM64 NEON
       if: ${{ inputs.use_zram }}
       working-directory: ${{ env.KERNEL_ROOT }}/common
